@@ -19,7 +19,7 @@ use esp_hal::time::{Duration, Instant, Rate};
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[macro_use]
 extern crate sx1262_mesh_rs;
-use sx1262_mesh_rs::config::MESH_LISTEN_PERIOD_MS;
+use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
 use sx1262_mesh_rs::radio::Sx1262Driver;
 
 use nano_mesh::{LoraIo, MeshNode};
@@ -154,7 +154,7 @@ fn main() -> ! {
         // Send a heartbeat (broadcast)
         if Instant::now() > next_tx {
             tx_count += 1;
-            match mesh.broadcast(b"hello", 3) {
+            match mesh.broadcast(b"hello", BROADCAST_LIFETIME) {
                 Ok(()) => esp_println::println!("TX #{}", tx_count),
                 Err(e) => esp_println::println!("TX #{} failed: {:?}", tx_count, e),
             }

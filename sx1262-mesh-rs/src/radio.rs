@@ -211,24 +211,33 @@ where
         // Poll IRQ for TxDone/Timeout — SF7 TX should complete in <100ms
         let start = esp_hal::time::Instant::now();
         let timeout = esp_hal::time::Duration::from_millis(TX_POLL_TIMEOUT_MS);
-        loop {
+        let result = loop {
             if start.elapsed() > timeout {
                 debug_println!("  TX timeout (no TxDone IRQ after 500ms)");
                 let _ = self.radio.clear_irq_status(IrqMask::all());
-                return Err(Sx1262Error::Timeout);
+                break Err(Sx1262Error::Timeout);
             }
             if let Ok(irq) = self.radio.get_irq_status() {
                 if irq.tx_done() || irq.timeout() {
                     let done = irq.tx_done();
                     let _ = self.radio.clear_irq_status(IrqMask::all());
-                    return if done {
-                        Ok(())
-                    } else {
-                        Err(Sx1262Error::Timeout)
-                    };
+                    break if done { Ok(()) } else { Err(Sx1262Error::Timeout) };
                 }
             }
+        };
+
+        // Immediately re-enter continuous RX so the mesh listen period
+        // measures real channel activity from the moment TX finishes,
+        // rather than leaving the radio in standby until the next poll.
+        if self
+            .radio
+            .set_rx(RxTxTimeout::continuous_rx())
+            .is_ok()
+        {
+            self.rx_active = true;
         }
+
+        result
     }
 
     fn max_packet_len(&self) -> usize {
