@@ -24,8 +24,41 @@ use sx1262_mesh_rs::radio::Sx1262Driver;
 // This creates a default app-descriptor required by the esp-idf bootloader.
 esp_bootloader_esp_idf::esp_app_desc!();
 
-/// This node's mesh address (change per device).
-const THIS_ADDRESS: u8 = 2;
+/// Convenience macro that only prints when the `debug` feature is enabled.
+macro_rules! debug_println {
+    ($($arg:tt)*) => {
+        if cfg!(feature = "debug") {
+            esp_println::println!($($arg)*)
+        }
+    };
+}
+
+/// This node's mesh address.
+/// Set at compile time via the `ADDRESS` environment variable, e.g.:
+///   ADDRESS=2 cargo run --release
+/// Defaults to 1 if not specified.
+const THIS_ADDRESS: u8 = {
+    // option_env! reads the variable at compile time; it cannot fail at runtime.
+    match option_env!("ADDRESS") {
+        Some(s) => {
+            let bytes = s.as_bytes();
+            assert!(bytes.len() > 0, "ADDRESS must not be empty");
+            let mut i = 0;
+            let mut n: u8 = 0;
+            while i < bytes.len() {
+                let d = bytes[i];
+                assert!(d >= b'0' && d <= b'9', "ADDRESS must be a number 0-255");
+                // Manual overflow check for const context
+                let next = n as u16 * 10 + (d - b'0') as u16;
+                assert!(next <= 255, "ADDRESS must be 0-255");
+                n = next as u8;
+                i += 1;
+            }
+            n
+        }
+        None => 1,
+    }
+};
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
 
@@ -34,15 +67,15 @@ const RF_FREQ: u32 = 915_000_000;
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 
-/* 
+/*
     xiao ESP32c3 - sx1262
 
-    L             R
+    XL       SX              XR         SX
     =========================================
-    GPIO 2   D0      |       5V   
+    GPIO 2   D0      |       5V
     GPIO 3   DIO1    |       GND
-    GPIO 4   RST     |       3V3   
-    GPIO 5   BUSY    |       GPIO 10    MOSI      
+    GPIO 4   RST     |       3V3
+    GPIO 5   BUSY    |       GPIO 10    MOSI
     GPIO 6   NSS     |       GPIO 9     MISO
     GPIO 7   RF_SW   |       GPIO 8     SCK
     GPIO 21  D6      |       GPIO 20    D7
@@ -80,16 +113,16 @@ fn main() -> ! {
     let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
 
     // ---- SX1262 radio --------------------------------------------------
-    esp_println::println!("Initialising SX1262 radio...");
+    debug_println!("Initialising SX1262 radio...");
     let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
     radio.init(RF_FREQ);
-    esp_println::println!("SX1262 init complete, checking hardware:");
+    debug_println!("SX1262 init complete, checking hardware:");
     if !radio.print_diagnostics() {
         esp_println::println!("WARNING: Radio not responding! Check wiring.");
     }
 
     // ---- RadioHead mesh ------------------------------------------------
-    esp_println::println!("Starting RadioHead mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
+    debug_println!("Starting RadioHead mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
     let mut mesh = unsafe { radiohead::RhMesh::new(&mut radio, THIS_ADDRESS) };
     mesh.init();
 
@@ -97,7 +130,7 @@ fn main() -> ! {
     mesh.set_timeout(200);
     mesh.set_retries(3);
 
-    esp_println::println!("Mesh node {} ready — listening and broadcasting every 10s", THIS_ADDRESS);
+    esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
 
     // ---- Main loop -----------------------------------------------------
     let mut rx_buf = [0u8; 64];
@@ -111,10 +144,15 @@ fn main() -> ! {
         if let Some(msg) = mesh.recv(&mut rx_buf) {
             rx_count += 1;
             let payload = &rx_buf[..msg.len as usize];
+            let text = core::str::from_utf8(payload).unwrap_or("<invalid utf8>");
             esp_println::println!(
-                "RX #{} from={} dest={} len={}: {:?}",
+                "RX #{} from={}: {}",
                 rx_count,
                 msg.source,
+                text,
+            );
+            debug_println!(
+                "  dest={} len={} raw={:?}",
                 msg.dest,
                 msg.len,
                 payload,
@@ -128,12 +166,12 @@ fn main() -> ! {
             tick = Instant::now() + Duration::from_millis(jitter_ms);
             tx_count += 1;
             let msg = b"hello";
-            esp_println::println!("TX #{} sending broadcast...", tx_count);
+            debug_println!("TX #{} sending broadcast...", tx_count);
             match mesh.send(msg, 0xFF) {
-                Ok(()) => esp_println::println!("TX #{} ok (total RX={})", tx_count, rx_count),
+                Ok(()) => debug_println!("TX #{} ok (total RX={})", tx_count, rx_count),
                 Err(e) => esp_println::println!("TX #{} err: {:?}", tx_count, e),
             }
-            esp_println::println!(
+            debug_println!(
                 "  radio stats: rx_good={} rx_bad={} tx_good={} rssi={}",
                 mesh.rx_good(), mesh.rx_bad(), mesh.tx_good(), mesh.last_rssi(),
             );

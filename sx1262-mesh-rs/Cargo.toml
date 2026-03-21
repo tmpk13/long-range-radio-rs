@@ -8,6 +8,10 @@ version      = "0.1.0"
 name = "sx1262-mesh-rs"
 path = "./src/bin/main.rs"
 
+[features]
+default = []
+debug = []
+
 [dependencies]
 radiohead-rs = { path = ".." }
 sx126x = "0.3"
