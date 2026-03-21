@@ -47,16 +47,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
-name = "cc"
-version = "1.2.57"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a0dd1ca384932ff3641c8718a02769f1698e7563dc6974ffd03346116310423"
-dependencies = [
- "find-msvc-tools",
- "shlex",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -308,6 +298,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2564b9f813c544241430e147d8bc454815ef9ac998878d30cc3055449f7fd4c0"
 dependencies = [
  "embedded-io 0.7.1",
+]
+
+[[package]]
+name = "embedded-nano-mesh"
+version = "2.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cbe3338118a5eb67e0fbfb091224984423d055bc6cb13b6c46b07138e5d18ff"
+dependencies = [
+ "embedded-io 0.6.1",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -591,12 +591,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "find-msvc-tools"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -678,6 +672,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
 dependencies = [
  "hash32",
+ "serde",
  "stable_deref_trait",
 ]
 
@@ -784,6 +779,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
+name = "nano-mesh-rs"
+version = "0.2.0"
+dependencies = [
+ "embedded-io 0.6.1",
+ "embedded-nano-mesh",
+]
+
+[[package]]
 name = "nb"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -859,13 +862,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "radiohead-rs"
-version = "0.1.0"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -995,12 +991,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shlex"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
-
-[[package]]
 name = "somni-expr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1059,7 +1049,7 @@ dependencies = [
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-println",
- "radiohead-rs",
+ "nano-mesh-rs",
  "sx126x",
 ]
 

@@ -13,7 +13,7 @@ default = []
 debug = []
 
 [dependencies]
-radiohead-rs = { path = ".." }
+nano-mesh-rs = { path = ".." }
 sx126x = "0.3"
 embedded-hal = "1.0"
 embedded-hal-bus = "0.2"

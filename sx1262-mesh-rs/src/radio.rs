@@ -1,15 +1,21 @@
-//! SX1262 radio driver implementing RadioHead's `RadioDriver` trait.
+//! SX1262 radio driver implementing [`PacketRadio`].
 
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal::spi::SpiDevice;
-use radiohead::RadioDriver;
+use nano_mesh::PacketRadio;
 use sx126x::conf::Config;
 use sx126x::op::*;
 use sx126x::SX126x;
 
-use crate::debug_println;
+/// Errors from the SX1262 radio.
+#[derive(Debug)]
+pub enum Sx1262Error {
+    Spi,
+    Pin,
+    Timeout,
+}
 
-/// Wrapper around `sx126x::SX126x` that implements [`RadioDriver`].
+/// Wrapper around `sx126x::SX126x` that implements [`PacketRadio`].
 pub struct Sx1262Driver<SPI: SpiDevice, NRST, BUSY, ANT, DIO1> {
     radio: SX126x<SPI, NRST, BUSY, ANT, DIO1>,
     rx_active: bool,
@@ -107,7 +113,7 @@ where
     }
 }
 
-impl<SPI, NRST, BUSY, ANT, DIO1, SPIERR, PINERR> RadioDriver
+impl<SPI, NRST, BUSY, ANT, DIO1, SPIERR, PINERR> PacketRadio
     for Sx1262Driver<SPI, NRST, BUSY, ANT, DIO1>
 where
     PINERR: core::fmt::Debug,
@@ -118,59 +124,67 @@ where
     ANT: OutputPin<Error = PINERR>,
     DIO1: InputPin<Error = PINERR>,
 {
-    fn poll_recv(&mut self, buf: &mut [u8]) -> Option<(u8, i16)> {
+    type Error = Sx1262Error;
+
+    fn poll_recv(&mut self, buf: &mut [u8]) -> Result<Option<(usize, i16)>, Self::Error> {
         // Enter continuous RX if not already listening
         if !self.rx_active {
-            self.radio.set_rx(RxTxTimeout::continuous_rx()).ok()?;
+            self.radio
+                .set_rx(RxTxTimeout::continuous_rx())
+                .map_err(|_| Sx1262Error::Spi)?;
             self.rx_active = true;
         }
 
         // Poll IRQ status over SPI
-        let irq = self.radio.get_irq_status().ok()?;
+        let irq = self.radio.get_irq_status().map_err(|_| Sx1262Error::Spi)?;
 
         if !irq.rx_done() {
-            return None;
+            return Ok(None);
         }
 
         // Clear all pending IRQs
         let _ = self.radio.clear_irq_status(IrqMask::all());
 
-        let rx_status = self.radio.get_rx_buffer_status().ok()?;
-        let len = rx_status.payload_length_rx();
+        let rx_status = self
+            .radio
+            .get_rx_buffer_status()
+            .map_err(|_| Sx1262Error::Spi)?;
+        let len = rx_status.payload_length_rx() as usize;
         let offset = rx_status.rx_start_buffer_pointer();
 
-        if (len as usize) > buf.len() {
+        if len > buf.len() {
             self.rx_active = false;
-            return None;
+            return Ok(None);
         }
 
         self.radio
-            .read_buffer(offset, &mut buf[..len as usize])
-            .ok()?;
+            .read_buffer(offset, &mut buf[..len])
+            .map_err(|_| Sx1262Error::Spi)?;
 
-        let pkt_status = self.radio.get_packet_status().ok()?;
+        let pkt_status = self
+            .radio
+            .get_packet_status()
+            .map_err(|_| Sx1262Error::Spi)?;
         let rssi = pkt_status.rssi_pkt() as i16;
 
         // Stay in RX — continuous mode persists
-        Some((len, rssi))
+        Ok(Some((len, rssi)))
     }
 
-    fn send(&mut self, data: &[u8]) -> bool {
+    fn send(&mut self, data: &[u8]) -> Result<(), Self::Error> {
         self.rx_active = false;
 
         // Must go to standby before TX (especially when coming from continuous RX)
-        if self.radio.set_standby(StandbyConfig::StbyRc).is_err() {
-            debug_println!("  send: set_standby failed");
-            return false;
-        }
+        self.radio
+            .set_standby(StandbyConfig::StbyRc)
+            .map_err(|_| Sx1262Error::Spi)?;
 
         // Clear any pending IRQs from RX mode
         let _ = self.radio.clear_irq_status(IrqMask::all());
 
-        let Ok(()) = self.radio.write_buffer(0x00, data) else {
-            debug_println!("  send: write_buffer failed");
-            return false;
-        };
+        self.radio
+            .write_buffer(0x00, data)
+            .map_err(|_| Sx1262Error::Spi)?;
 
         let params: PacketParams = LoRaPacketParams::default()
             .set_preamble_len(8)
@@ -179,15 +193,13 @@ where
             .set_crc_type(LoRaCrcType::CrcOn)
             .set_invert_iq(LoRaInvertIq::Standard)
             .into();
-        if self.radio.set_packet_params(params).is_err() {
-            debug_println!("  send: set_packet_params failed");
-            return false;
-        }
+        self.radio
+            .set_packet_params(params)
+            .map_err(|_| Sx1262Error::Spi)?;
 
-        if self.radio.set_tx(RxTxTimeout::from_ms(3000)).is_err() {
-            debug_println!("  send: set_tx failed");
-            return false;
-        }
+        self.radio
+            .set_tx(RxTxTimeout::from_ms(3000))
+            .map_err(|_| Sx1262Error::Spi)?;
 
         if cfg!(feature = "debug") {
             if let Ok(status) = self.radio.get_status() {
@@ -202,19 +214,23 @@ where
             if start.elapsed() > timeout {
                 debug_println!("  TX timeout (no TxDone IRQ after 500ms)");
                 let _ = self.radio.clear_irq_status(IrqMask::all());
-                return false;
+                return Err(Sx1262Error::Timeout);
             }
             if let Ok(irq) = self.radio.get_irq_status() {
                 if irq.tx_done() || irq.timeout() {
                     let done = irq.tx_done();
                     let _ = self.radio.clear_irq_status(IrqMask::all());
-                    return done;
+                    return if done {
+                        Ok(())
+                    } else {
+                        Err(Sx1262Error::Timeout)
+                    };
                 }
             }
         }
     }
 
-    fn max_message_length(&self) -> u8 {
+    fn max_packet_len(&self) -> usize {
         255
     }
 }

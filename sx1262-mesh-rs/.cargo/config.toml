@@ -1,11 +1,6 @@
 [target.riscv32imc-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c3"
 
-[env]
-CXX_riscv32imc_unknown_none_elf = "/home/tmpk/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-g++"
-CC_riscv32imc_unknown_none_elf = "/home/tmpk/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-gcc"
-AR_riscv32imc_unknown_none_elf = "/home/tmpk/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-ar"
-
 [build]
 rustflags = [
   # Required to obtain backtraces (e.g. when using the "esp-backtrace" crate.)

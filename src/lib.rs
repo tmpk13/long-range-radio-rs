@@ -1,9 +1,4 @@
-//! `radiohead-rs` — Rust FFI wrapper for RadioHead mesh routing.
-//!
-//! This crate wraps the C++ RadioHead routing stack (RHMesh, RHRouter,
-//! RHReliableDatagram) so it can be driven from Rust.  The actual radio
-//! hardware is provided by the user via the [`RadioDriver`] trait —
-//! typically backed by an existing Rust SX1262/SX126x crate and `esp-hal`.
+//! Board-agnostic mesh networking layer wrapping `embedded-nano-mesh`.
 //!
 //! # Architecture
 //!
@@ -11,50 +6,29 @@
 //! ┌─────────────────────────────────────┐
 //! │  Your application (Rust)            │
 //! ├─────────────────────────────────────┤
-//! │  RhMesh  (safe Rust wrapper)        │
+//! │  MeshNode  (safe Rust wrapper)      │
 //! ├─────────────────────────────────────┤
-//! │  C shim  (extern "C")              │
+//! │  LoraIo  (packet ↔ byte-stream)    │
 //! ├─────────────────────────────────────┤
-//! │  RadioHead C++ routing stack        │
-//! │  RHMesh → RHRouter → RHReliable…   │
-//! ├─────────────────────────────────────┤
-//! │  RustDriver : RHGenericDriver       │
-//! │  (calls back into Rust via fn ptrs) │
-//! ├─────────────────────────────────────┤
-//! │  impl RadioDriver  (you write this) │
-//! │  e.g. sx126x crate + esp-hal SPI    │
+//! │  impl PacketRadio (you write this)  │
+//! │  e.g. sx126x crate + esp-hal SPI   │
 //! └─────────────────────────────────────┘
 //! ```
 //!
-//! # Platform functions
-//!
-//! The C++ routing code needs `millis()`, `delay()` and `random()`.
-//! You **must** provide these as `#[no_mangle] extern "C"` functions
-//! in your final binary:
-//!
-//! ```rust,ignore
-//! #[no_mangle]
-//! pub extern "C" fn rh_millis() -> u32 {
-//!     // return milliseconds since boot
-//! }
-//!
-//! #[no_mangle]
-//! pub extern "C" fn rh_delay(ms: u32) {
-//!     // busy-wait or yield for `ms` milliseconds
-//! }
-//!
-//! #[no_mangle]
-//! pub extern "C" fn rh_random(min: i32, max: i32) -> i32 {
-//!     // return a random number in [min, max)
-//! }
-//! ```
+//! Implement [`PacketRadio`] for your radio hardware.  Wrap it in
+//! [`LoraIo`] to provide the byte-stream interface that the mesh
+//! protocol needs, then use [`MeshNode`] to send and receive.
 
 #![no_std]
 
-mod ffi;
+mod radio;
+pub use radio::PacketRadio;
 
-mod driver;
-pub use driver::RadioDriver;
+mod adapter;
+pub use adapter::LoraIo;
 
 mod mesh;
-pub use mesh::{MeshError, Message, RhMesh};
+pub use mesh::{MeshMessage, MeshNode};
+
+// Re-export types that users will need from embedded-nano-mesh.
+pub use embedded_nano_mesh::{LifeTimeType, SendError};

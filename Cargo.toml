@@ -1,13 +1,12 @@
 [package]
-name = "radiohead-rs"
-version = "0.1.0"
+name = "nano-mesh-rs"
+version = "0.2.0"
 edition = "2021"
-description = "Rust FFI wrapper for RadioHead mesh routing on ESP32-C3"
+description = "Board-agnostic mesh networking layer wrapping embedded-nano-mesh"
 
 [lib]
-name = "radiohead"
+name = "nano_mesh"
 
 [dependencies]
-
-[build-dependencies]
-cc = "1"
+embedded-nano-mesh = "2.1"
+embedded-io = "0.6"

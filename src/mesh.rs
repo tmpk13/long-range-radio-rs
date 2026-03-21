@@ -1,244 +1,105 @@
-//! Safe wrappers around the RadioHead mesh routing stack.
+//! Safe wrapper around [`embedded_nano_mesh::Node`].
 
-use crate::driver::{
-    trampoline_max_message_length, trampoline_poll_recv, trampoline_send, RadioDriver,
+use core::num::NonZeroU8;
+
+use embedded_nano_mesh::{
+    ExactAddressType, LifeTimeType, Node, NodeConfig, PacketDataBytes, SendError,
 };
-use crate::ffi;
-use core::ffi::c_void;
 
-/// RadioHead router error codes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum MeshError {
-    InvalidLength = 1,
-    NoRoute = 2,
-    Timeout = 3,
-    NoReply = 4,
-    UnableToDeliver = 5,
-}
-
-impl MeshError {
-    fn from_code(code: u8) -> Option<Self> {
-        match code {
-            0 => None, // success
-            1 => Some(Self::InvalidLength),
-            2 => Some(Self::NoRoute),
-            3 => Some(Self::Timeout),
-            4 => Some(Self::NoReply),
-            5 => Some(Self::UnableToDeliver),
-            _ => Some(Self::UnableToDeliver),
-        }
-    }
-}
+use crate::adapter::LoraIo;
+use crate::radio::PacketRadio;
 
 /// A received mesh message.
 #[derive(Debug)]
-pub struct Message {
-    pub len: u8,
+pub struct MeshMessage {
+    /// Source node address (0 = unknown / broadcast origin).
     pub source: u8,
-    pub dest: u8,
-    pub id: u8,
-    pub flags: u8,
+    /// Payload bytes.
+    pub data: PacketDataBytes,
 }
 
-/// Handle to the RadioHead mesh networking stack.
-///
-/// There can only be **one** `RhMesh` instance at a time (backed by
-/// static C++ storage).  The `driver` reference must remain valid and
-/// un-moved for the lifetime of this handle.
-pub struct RhMesh {
-    _not_send: core::marker::PhantomData<*mut ()>,
+/// A mesh network node backed by `embedded-nano-mesh`.
+pub struct MeshNode {
+    node: Node,
 }
 
-impl RhMesh {
-    /// Create and initialise the mesh stack.
+impl MeshNode {
+    /// Create a new mesh node.
     ///
-    /// # Safety
+    /// `address` must be 1–255 (0 is reserved for broadcast).
+    /// `listen_period_ms` is how long the node listens before
+    /// transmitting queued packets.
     ///
-    /// * `driver` must remain valid and pinned for the lifetime of this
-    ///   `RhMesh`.  In practice, store it in a `static` or leak it.
-    /// * Only one `RhMesh` may exist at a time.
-    pub unsafe fn new<D: RadioDriver>(driver: &mut D, this_address: u8) -> Self {
-        // The vtable must live as long as the C++ RustDriver object (i.e. forever),
-        // because C++ stores the pointer and dereferences it on every poll/send.
-        // Since only one RhMesh can exist at a time, a single global is fine.
-        use core::mem::MaybeUninit;
-        static mut VTABLE_STORAGE: MaybeUninit<ffi::RhDriverVtable> = MaybeUninit::uninit();
-        unsafe {
-            let ptr = &raw mut VTABLE_STORAGE;
-            (*ptr).write(ffi::RhDriverVtable {
-                poll_recv: trampoline_poll_recv::<D>,
-                send: trampoline_send::<D>,
-                max_message_length: trampoline_max_message_length::<D>,
-            });
-            ffi::rh_create((*ptr).as_ptr(), driver as *mut D as *mut c_void, this_address);
-        }
+    /// # Panics
+    ///
+    /// Panics if `address` is 0.
+    pub fn new(address: u8, listen_period_ms: u32) -> Self {
+        let device_address: ExactAddressType =
+            NonZeroU8::new(address).expect("mesh address must be 1-255");
         Self {
-            _not_send: core::marker::PhantomData,
+            node: Node::new(NodeConfig {
+                device_address,
+                listen_period: listen_period_ms,
+            }),
         }
     }
 
-    /// Initialise the underlying RadioHead stack.  Call once after `new()`.
-    pub fn init(&mut self) -> bool {
-        unsafe { ffi::rh_init() }
-    }
-
-    // ---- Mesh send / recv -------------------------------------------
-
-    /// Send a message to `dest` via the mesh network.
+    /// Drive the mesh protocol.
     ///
-    /// Blocks until acknowledged by the next hop (not the final destination).
-    /// Performs automatic route discovery if no route is known.
-    pub fn send(&mut self, data: &[u8], dest: u8) -> Result<(), MeshError> {
-        self.send_with_flags(data, dest, 0)
+    /// Must be called frequently in the main loop.  Handles receiving,
+    /// forwarding, and transmitting queued packets.
+    pub fn update<R: PacketRadio>(
+        &mut self,
+        io: &mut LoraIo<R>,
+        current_time_ms: u32,
+    ) {
+        // NodeUpdateError only reports queue-full conditions, which
+        // are non-fatal — just means some packets were dropped.
+        let _ = self.node.update(io, current_time_ms);
     }
 
-    /// Send with application-level flags (lower 4 bits only).
-    pub fn send_with_flags(
+    /// Queue a message for a specific destination node.
+    ///
+    /// `dest` must be 1–255.  `lifetime` is the hop count (how many
+    /// times the packet can be forwarded).
+    pub fn send(
         &mut self,
         data: &[u8],
         dest: u8,
-        flags: u8,
-    ) -> Result<(), MeshError> {
-        let code = unsafe {
-            ffi::rh_mesh_send(data.as_ptr() as *mut u8, data.len() as u8, dest, flags)
-        };
-        match MeshError::from_code(code) {
-            None => Ok(()),
-            Some(e) => Err(e),
-        }
+        lifetime: LifeTimeType,
+    ) -> Result<(), SendError> {
+        let dest_addr =
+            NonZeroU8::new(dest).expect("destination address must be 1-255");
+        let mut pkt_data = PacketDataBytes::new();
+        pkt_data
+            .extend_from_slice(data)
+            .map_err(|_| SendError::SendingQueueIsFull)?;
+        self.node
+            .send_to_exact(pkt_data, dest_addr, lifetime, true)
     }
 
-    /// Non-blocking receive.  Call this frequently in your main loop.
+    /// Queue a broadcast message to all reachable nodes.
     ///
-    /// Returns `Some(msg)` if a message addressed to this node was
-    /// received; the payload is written into `buf[..msg.len]`.
-    /// Also handles routing of messages destined for other nodes.
-    pub fn recv(&mut self, buf: &mut [u8]) -> Option<Message> {
-        let mut len = buf.len() as u8;
-        let mut source = 0u8;
-        let mut dest = 0u8;
-        let mut id = 0u8;
-        let mut flags = 0u8;
-
-        let ok = unsafe {
-            ffi::rh_mesh_recv(
-                buf.as_mut_ptr(),
-                &mut len,
-                &mut source,
-                &mut dest,
-                &mut id,
-                &mut flags,
-            )
-        };
-
-        if ok {
-            Some(Message {
-                len,
-                source,
-                dest,
-                id,
-                flags,
-            })
-        } else {
-            None
-        }
+    /// `lifetime` is the hop count.
+    pub fn broadcast(
+        &mut self,
+        data: &[u8],
+        lifetime: LifeTimeType,
+    ) -> Result<(), SendError> {
+        let mut pkt_data = PacketDataBytes::new();
+        pkt_data
+            .extend_from_slice(data)
+            .map_err(|_| SendError::SendingQueueIsFull)?;
+        self.node.broadcast(pkt_data, lifetime)
     }
 
-    /// Blocking receive with timeout in milliseconds.
-    pub fn recv_timeout(&mut self, buf: &mut [u8], timeout_ms: u16) -> Option<Message> {
-        let mut len = buf.len() as u8;
-        let mut source = 0u8;
-        let mut dest = 0u8;
-        let mut id = 0u8;
-        let mut flags = 0u8;
-
-        let ok = unsafe {
-            ffi::rh_mesh_recv_timeout(
-                buf.as_mut_ptr(),
-                &mut len,
-                timeout_ms,
-                &mut source,
-                &mut dest,
-                &mut id,
-                &mut flags,
-            )
-        };
-
-        if ok {
-            Some(Message {
-                len,
-                source,
-                dest,
-                id,
-                flags,
-            })
-        } else {
-            None
-        }
-    }
-
-    // ---- Reliable datagram (point-to-point, bypasses routing) --------
-
-    /// Send directly to `address` with ACK/retry (no mesh routing).
-    pub fn reliable_send(&mut self, data: &[u8], address: u8) -> bool {
-        unsafe { ffi::rh_reliable_send(data.as_ptr() as *mut u8, data.len() as u8, address) }
-    }
-
-    // ---- Route management -------------------------------------------
-
-    /// Manually add a route: to reach `dest`, send via `next_hop`.
-    pub fn add_route(&mut self, dest: u8, next_hop: u8) {
-        unsafe { ffi::rh_router_add_route(dest, next_hop) }
-    }
-
-    /// Delete the route to `dest`.  Returns true if the route existed.
-    pub fn delete_route(&mut self, dest: u8) -> bool {
-        unsafe { ffi::rh_router_delete_route(dest) }
-    }
-
-    /// Clear the entire routing table.
-    pub fn clear_routes(&mut self) {
-        unsafe { ffi::rh_router_clear_routes() }
-    }
-
-    /// Set the maximum hop count before a routed message is dropped.
-    pub fn set_max_hops(&mut self, max_hops: u8) {
-        unsafe { ffi::rh_router_set_max_hops(max_hops) }
-    }
-
-    // ---- Configuration ----------------------------------------------
-
-    /// Change this node's address.
-    pub fn set_this_address(&mut self, address: u8) {
-        unsafe { ffi::rh_set_this_address(address) }
-    }
-
-    /// Set the retransmit timeout (ms) for reliable datagrams.
-    pub fn set_timeout(&mut self, timeout_ms: u16) {
-        unsafe { ffi::rh_reliable_set_timeout(timeout_ms) }
-    }
-
-    /// Set the maximum number of retransmit attempts.
-    pub fn set_retries(&mut self, retries: u8) {
-        unsafe { ffi::rh_reliable_set_retries(retries) }
-    }
-
-    // ---- Statistics -------------------------------------------------
-
-    pub fn rx_good(&self) -> u16 {
-        unsafe { ffi::rh_driver_rx_good() }
-    }
-    pub fn rx_bad(&self) -> u16 {
-        unsafe { ffi::rh_driver_rx_bad() }
-    }
-    pub fn tx_good(&self) -> u16 {
-        unsafe { ffi::rh_driver_tx_good() }
-    }
-    pub fn last_rssi(&self) -> i16 {
-        unsafe { ffi::rh_driver_last_rssi() }
-    }
-    pub fn retransmissions(&self) -> u32 {
-        unsafe { ffi::rh_reliable_retransmissions() }
+    /// Check for a received message addressed to this node.
+    ///
+    /// Returns `None` if no message is available.
+    pub fn receive(&mut self) -> Option<MeshMessage> {
+        self.node.receive().map(|pkt| MeshMessage {
+            source: pkt.source_device_identifier,
+            data: pkt.data,
+        })
     }
 }

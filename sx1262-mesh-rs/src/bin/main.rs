@@ -17,10 +17,11 @@ use esp_hal::delay::Delay;
 use esp_hal::time::{Duration, Instant, Rate};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
-// Ensure platform functions (rh_millis, rh_delay, rh_random) are linked.
 #[macro_use]
 extern crate sx1262_mesh_rs;
 use sx1262_mesh_rs::radio::Sx1262Driver;
+
+use nano_mesh::{LoraIo, MeshNode};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -113,19 +114,14 @@ fn main() -> ! {
         esp_println::println!("WARNING: Radio not responding! Check wiring.");
     }
 
-    // ---- RadioHead mesh ------------------------------------------------
-    debug_println!("Starting RadioHead mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
-    let mut mesh = unsafe { radiohead::RhMesh::new(&mut radio, THIS_ADDRESS) };
-    mesh.init();
-
-    // Optional: tweak retransmit behaviour
-    mesh.set_timeout(200);
-    mesh.set_retries(2);
+    // ---- Mesh networking -----------------------------------------------
+    debug_println!("Starting nano-mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
+    let mut io = LoraIo::new(radio);
+    let mut mesh = MeshNode::new(THIS_ADDRESS, 50);
 
     esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
 
     // ---- Main loop -----------------------------------------------------
-    let mut rx_buf = [0u8; 64];
     // Stagger first TX by address so nodes don't collide on boot
     let tx_interval = Duration::from_secs(10);
     let mut next_tx = Instant::now() + Duration::from_secs(THIS_ADDRESS as u64 * 3);
@@ -133,11 +129,13 @@ fn main() -> ! {
     let mut rx_count: u32 = 0;
 
     loop {
-        // Poll for incoming messages (also handles routing for other nodes)
-        if let Some(msg) = mesh.recv(&mut rx_buf) {
+        // Drive the mesh protocol (receive, forward, transmit)
+        mesh.update(&mut io, sx1262_mesh_rs::platform::millis());
+
+        // Check for incoming messages
+        if let Some(msg) = mesh.receive() {
             rx_count += 1;
-            let payload = &rx_buf[..msg.len as usize];
-            let text = core::str::from_utf8(payload).unwrap_or("<invalid utf8>");
+            let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
             esp_println::println!(
                 "RX #{} from={}: {}",
                 rx_count,
@@ -145,27 +143,22 @@ fn main() -> ! {
                 text,
             );
             debug_println!(
-                "  dest={} len={} raw={:?}",
-                msg.dest,
-                msg.len,
-                payload,
+                "  len={} rssi={} raw={:?}",
+                msg.data.len(),
+                io.last_rssi(),
+                &msg.data[..],
             );
         }
 
-        // Send a heartbeat (to broadcast address 0xFF)
+        // Send a heartbeat (broadcast)
         if Instant::now() > next_tx {
             tx_count += 1;
-            let msg = b"hello";
-            match mesh.send(msg, 0xFF) {
+            match mesh.broadcast(b"hello", 3) {
                 Ok(()) => esp_println::println!("TX #{}", tx_count),
                 Err(e) => esp_println::println!("TX #{} failed: {:?}", tx_count, e),
             }
-            debug_println!(
-                "  tx_good={} rx_good={} rx_bad={} rssi={}",
-                mesh.tx_good(), mesh.rx_good(), mesh.rx_bad(), mesh.last_rssi(),
-            );
             // Schedule next TX from now, with 0-3s jitter to avoid repeated collisions
-            let jitter_ms = sx1262_mesh_rs::platform::rh_random(0, 3000) as u64;
+            let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u64;
             next_tx = Instant::now() + tx_interval + Duration::from_millis(jitter_ms);
         }
     }
