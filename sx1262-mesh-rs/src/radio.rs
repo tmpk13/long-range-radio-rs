@@ -1,5 +1,6 @@
 //! SX1262 radio driver implementing [`PacketRadio`].
 
+use crate::config::{TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal::spi::SpiDevice;
 use nano_mesh::PacketRadio;
@@ -198,7 +199,7 @@ where
             .map_err(|_| Sx1262Error::Spi)?;
 
         self.radio
-            .set_tx(RxTxTimeout::from_ms(3000))
+            .set_tx(RxTxTimeout::from_ms(TX_CHIP_TIMEOUT_MS as u32))
             .map_err(|_| Sx1262Error::Spi)?;
 
         if cfg!(feature = "debug") {
@@ -209,7 +210,7 @@ where
 
         // Poll IRQ for TxDone/Timeout — SF7 TX should complete in <100ms
         let start = esp_hal::time::Instant::now();
-        let timeout = esp_hal::time::Duration::from_millis(500);
+        let timeout = esp_hal::time::Duration::from_millis(TX_POLL_TIMEOUT_MS);
         loop {
             if start.elapsed() > timeout {
                 debug_println!("  TX timeout (no TxDone IRQ after 500ms)");

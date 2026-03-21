@@ -8,10 +8,10 @@
 //! ├─────────────────────────────────────┤
 //! │  MeshNode  (safe Rust wrapper)      │
 //! ├─────────────────────────────────────┤
-//! │  LoraIo  (packet ↔ byte-stream)    │
+//! │  LoraIo  (packet ↔ byte-stream)     │
 //! ├─────────────────────────────────────┤
-//! │  impl PacketRadio (you write this)  │
-//! │  e.g. sx126x crate + esp-hal SPI   │
+//! │  impl PacketRadio (user implemented)│
+//! │  e.g. sx126x crate + esp-hal SPI    │
 //! └─────────────────────────────────────┘
 //! ```
 //!

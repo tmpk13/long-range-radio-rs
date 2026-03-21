@@ -8,6 +8,7 @@ use embedded_nano_mesh::{
 
 use crate::adapter::LoraIo;
 use crate::radio::PacketRadio;
+use embedded_io::Write as _;
 
 /// A received mesh message.
 #[derive(Debug)]
@@ -56,6 +57,10 @@ impl MeshNode {
         // NodeUpdateError only reports queue-full conditions, which
         // are non-fatal — just means some packets were dropped.
         let _ = self.node.update(io, current_time_ms);
+        // embedded-nano-mesh only calls write() on the IO, never flush().
+        // flush() is what triggers actual radio transmission, so we must
+        // call it here after every update to drain the tx buffer.
+        let _ = io.flush();
     }
 
     /// Queue a message for a specific destination node.

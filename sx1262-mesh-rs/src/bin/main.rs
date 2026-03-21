@@ -19,6 +19,7 @@ use esp_hal::time::{Duration, Instant, Rate};
 use embedded_hal_bus::spi::ExclusiveDevice;
 #[macro_use]
 extern crate sx1262_mesh_rs;
+use sx1262_mesh_rs::config::MESH_LISTEN_PERIOD_MS;
 use sx1262_mesh_rs::radio::Sx1262Driver;
 
 use nano_mesh::{LoraIo, MeshNode};
@@ -117,7 +118,7 @@ fn main() -> ! {
     // ---- Mesh networking -----------------------------------------------
     debug_println!("Starting nano-mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
     let mut io = LoraIo::new(radio);
-    let mut mesh = MeshNode::new(THIS_ADDRESS, 50);
+    let mut mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
 
     esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
 

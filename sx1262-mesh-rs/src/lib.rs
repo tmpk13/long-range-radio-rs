@@ -10,5 +10,6 @@ macro_rules! debug_println {
     };
 }
 
+pub mod config;
 pub mod platform;
 pub mod radio;
