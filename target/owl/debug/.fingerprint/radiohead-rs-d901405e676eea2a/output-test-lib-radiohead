@@ -1,0 +1,204 @@
+2026-03-21T07:08:34.812Z INFO  [rustowlc::core] start borrowck of DefId(0:82 ~ radiohead[d1c1]::mesh::MeshError::InvalidLength::{constant#0})
+2026-03-21T07:08:34.812Z INFO  [rustowlc::core::analyze] facts of DefId(0:82 ~ radiohead[d1c1]::mesh::MeshError::InvalidLength::{constant#0}) prepared; start analyze of DefId(0:82 ~ radiohead[d1c1]::mesh::MeshError::InvalidLength::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] borrow checked: 1 / 34
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] start borrowck of DefId(0:85 ~ radiohead[d1c1]::mesh::MeshError::NoRoute::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] facts of DefId(0:85 ~ radiohead[d1c1]::mesh::MeshError::NoRoute::{constant#0}) prepared; start analyze of DefId(0:85 ~ radiohead[d1c1]::mesh::MeshError::NoRoute::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] borrow checked: 2 / 34
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] start borrowck of DefId(0:88 ~ radiohead[d1c1]::mesh::MeshError::Timeout::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] facts of DefId(0:88 ~ radiohead[d1c1]::mesh::MeshError::Timeout::{constant#0}) prepared; start analyze of DefId(0:88 ~ radiohead[d1c1]::mesh::MeshError::Timeout::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] borrow checked: 3 / 34
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] start borrowck of DefId(0:91 ~ radiohead[d1c1]::mesh::MeshError::NoReply::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] facts of DefId(0:91 ~ radiohead[d1c1]::mesh::MeshError::NoReply::{constant#0}) prepared; start analyze of DefId(0:91 ~ radiohead[d1c1]::mesh::MeshError::NoReply::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] borrow checked: 4 / 34
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core] start borrowck of DefId(0:94 ~ radiohead[d1c1]::mesh::MeshError::UnableToDeliver::{constant#0})
+2026-03-21T07:08:34.813Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.814Z INFO  [rustowlc::core::analyze] facts of DefId(0:94 ~ radiohead[d1c1]::mesh::MeshError::UnableToDeliver::{constant#0}) prepared; start analyze of DefId(0:94 ~ radiohead[d1c1]::mesh::MeshError::UnableToDeliver::{constant#0})
+2026-03-21T07:08:34.814Z INFO  [rustowlc::core] borrow checked: 5 / 34
+2026-03-21T07:08:34.814Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.814Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.821Z INFO  [rustowlc::core] start borrowck of DefId(0:35 ~ radiohead[d1c1]::driver::trampoline_poll_recv)
+2026-03-21T07:08:34.823Z INFO  [rustowlc::core::analyze] facts of DefId(0:35 ~ radiohead[d1c1]::driver::trampoline_poll_recv) prepared; start analyze of DefId(0:35 ~ radiohead[d1c1]::driver::trampoline_poll_recv)
+2026-03-21T07:08:34.823Z INFO  [rustowlc::core] borrow checked: 6 / 34
+2026-03-21T07:08:34.823Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.823Z INFO  [rustowlc::core] start borrowck of DefId(0:37 ~ radiohead[d1c1]::driver::trampoline_send)
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core::analyze] facts of DefId(0:37 ~ radiohead[d1c1]::driver::trampoline_send) prepared; start analyze of DefId(0:37 ~ radiohead[d1c1]::driver::trampoline_send)
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core] borrow checked: 7 / 34
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core] start borrowck of DefId(0:39 ~ radiohead[d1c1]::driver::trampoline_max_message_length)
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core::analyze] facts of DefId(0:39 ~ radiohead[d1c1]::driver::trampoline_max_message_length) prepared; start analyze of DefId(0:39 ~ radiohead[d1c1]::driver::trampoline_max_message_length)
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core] borrow checked: 8 / 34
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core] start borrowck of DefId(0:96 ~ radiohead[d1c1]::mesh::{impl#2}::fmt)
+2026-03-21T07:08:34.824Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.825Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.825Z INFO  [rustowlc::core::analyze] facts of DefId(0:96 ~ radiohead[d1c1]::mesh::{impl#2}::fmt) prepared; start analyze of DefId(0:96 ~ radiohead[d1c1]::mesh::{impl#2}::fmt)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] borrow checked: 9 / 34
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] start borrowck of DefId(0:98 ~ radiohead[d1c1]::mesh::{impl#3}::clone)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] facts of DefId(0:98 ~ radiohead[d1c1]::mesh::{impl#3}::clone) prepared; start analyze of DefId(0:98 ~ radiohead[d1c1]::mesh::{impl#3}::clone)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] borrow checked: 10 / 34
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] start borrowck of DefId(0:102 ~ radiohead[d1c1]::mesh::{impl#6}::eq)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] facts of DefId(0:102 ~ radiohead[d1c1]::mesh::{impl#6}::eq) prepared; start analyze of DefId(0:102 ~ radiohead[d1c1]::mesh::{impl#6}::eq)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] borrow checked: 11 / 34
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] start borrowck of DefId(0:104 ~ radiohead[d1c1]::mesh::{impl#7}::assert_receiver_is_total_eq)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] facts of DefId(0:104 ~ radiohead[d1c1]::mesh::{impl#7}::assert_receiver_is_total_eq) prepared; start analyze of DefId(0:104 ~ radiohead[d1c1]::mesh::{impl#7}::assert_receiver_is_total_eq)
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] borrow checked: 12 / 34
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.826Z INFO  [rustowlc::core] start borrowck of DefId(0:51 ~ radiohead[d1c1]::mesh::{impl#0}::from_code)
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core::analyze] facts of DefId(0:51 ~ radiohead[d1c1]::mesh::{impl#0}::from_code) prepared; start analyze of DefId(0:51 ~ radiohead[d1c1]::mesh::{impl#0}::from_code)
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core] borrow checked: 13 / 34
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core] start borrowck of DefId(0:112 ~ radiohead[d1c1]::mesh::{impl#8}::fmt)
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.827Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.828Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.829Z INFO  [rustowlc::core::analyze] facts of DefId(0:112 ~ radiohead[d1c1]::mesh::{impl#8}::fmt) prepared; start analyze of DefId(0:112 ~ radiohead[d1c1]::mesh::{impl#8}::fmt)
+2026-03-21T07:08:34.830Z INFO  [rustowlc::core] borrow checked: 14 / 34
+2026-03-21T07:08:34.830Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.830Z INFO  [rustowlc::core] start borrowck of DefId(0:55 ~ radiohead[d1c1]::mesh::{impl#1}::new)
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core::analyze] facts of DefId(0:55 ~ radiohead[d1c1]::mesh::{impl#1}::new) prepared; start analyze of DefId(0:55 ~ radiohead[d1c1]::mesh::{impl#1}::new)
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core] borrow checked: 15 / 34
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core] start borrowck of DefId(0:57 ~ radiohead[d1c1]::mesh::{impl#1}::init)
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core::analyze] facts of DefId(0:57 ~ radiohead[d1c1]::mesh::{impl#1}::init) prepared; start analyze of DefId(0:57 ~ radiohead[d1c1]::mesh::{impl#1}::init)
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core] borrow checked: 16 / 34
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core] start borrowck of DefId(0:58 ~ radiohead[d1c1]::mesh::{impl#1}::send)
+2026-03-21T07:08:34.831Z INFO  [rustowlc::core::analyze] facts of DefId(0:58 ~ radiohead[d1c1]::mesh::{impl#1}::send) prepared; start analyze of DefId(0:58 ~ radiohead[d1c1]::mesh::{impl#1}::send)
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core] borrow checked: 17 / 34
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core] start borrowck of DefId(0:59 ~ radiohead[d1c1]::mesh::{impl#1}::send_with_flags)
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.832Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.833Z INFO  [rustowlc::core::analyze] facts of DefId(0:59 ~ radiohead[d1c1]::mesh::{impl#1}::send_with_flags) prepared; start analyze of DefId(0:59 ~ radiohead[d1c1]::mesh::{impl#1}::send_with_flags)
+2026-03-21T07:08:34.833Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.833Z INFO  [rustowlc::core] borrow checked: 18 / 34
+2026-03-21T07:08:34.833Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.834Z INFO  [rustowlc::core] start borrowck of DefId(0:60 ~ radiohead[d1c1]::mesh::{impl#1}::recv)
+2026-03-21T07:08:34.835Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.836Z INFO  [rustowlc::core::analyze] facts of DefId(0:60 ~ radiohead[d1c1]::mesh::{impl#1}::recv) prepared; start analyze of DefId(0:60 ~ radiohead[d1c1]::mesh::{impl#1}::recv)
+2026-03-21T07:08:34.837Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.837Z INFO  [rustowlc::core] borrow checked: 19 / 34
+2026-03-21T07:08:34.837Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.837Z INFO  [rustowlc::core] start borrowck of DefId(0:61 ~ radiohead[d1c1]::mesh::{impl#1}::recv_timeout)
+2026-03-21T07:08:34.840Z INFO  [rustowlc::core::analyze] facts of DefId(0:61 ~ radiohead[d1c1]::mesh::{impl#1}::recv_timeout) prepared; start analyze of DefId(0:61 ~ radiohead[d1c1]::mesh::{impl#1}::recv_timeout)
+2026-03-21T07:08:34.841Z INFO  [rustowlc::core] borrow checked: 20 / 34
+2026-03-21T07:08:34.841Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.841Z INFO  [rustowlc::core] start borrowck of DefId(0:62 ~ radiohead[d1c1]::mesh::{impl#1}::reliable_send)
+2026-03-21T07:08:34.841Z INFO  [rustowlc::core::analyze] facts of DefId(0:62 ~ radiohead[d1c1]::mesh::{impl#1}::reliable_send) prepared; start analyze of DefId(0:62 ~ radiohead[d1c1]::mesh::{impl#1}::reliable_send)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] borrow checked: 21 / 34
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] start borrowck of DefId(0:63 ~ radiohead[d1c1]::mesh::{impl#1}::add_route)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] facts of DefId(0:63 ~ radiohead[d1c1]::mesh::{impl#1}::add_route) prepared; start analyze of DefId(0:63 ~ radiohead[d1c1]::mesh::{impl#1}::add_route)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] borrow checked: 22 / 34
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] start borrowck of DefId(0:64 ~ radiohead[d1c1]::mesh::{impl#1}::delete_route)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] facts of DefId(0:64 ~ radiohead[d1c1]::mesh::{impl#1}::delete_route) prepared; start analyze of DefId(0:64 ~ radiohead[d1c1]::mesh::{impl#1}::delete_route)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] borrow checked: 23 / 34
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] start borrowck of DefId(0:65 ~ radiohead[d1c1]::mesh::{impl#1}::clear_routes)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] facts of DefId(0:65 ~ radiohead[d1c1]::mesh::{impl#1}::clear_routes) prepared; start analyze of DefId(0:65 ~ radiohead[d1c1]::mesh::{impl#1}::clear_routes)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] borrow checked: 24 / 34
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] start borrowck of DefId(0:66 ~ radiohead[d1c1]::mesh::{impl#1}::set_max_hops)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] facts of DefId(0:66 ~ radiohead[d1c1]::mesh::{impl#1}::set_max_hops) prepared; start analyze of DefId(0:66 ~ radiohead[d1c1]::mesh::{impl#1}::set_max_hops)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] borrow checked: 25 / 34
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core] start borrowck of DefId(0:67 ~ radiohead[d1c1]::mesh::{impl#1}::set_this_address)
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.842Z INFO  [rustowlc::core::analyze] facts of DefId(0:67 ~ radiohead[d1c1]::mesh::{impl#1}::set_this_address) prepared; start analyze of DefId(0:67 ~ radiohead[d1c1]::mesh::{impl#1}::set_this_address)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 26 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:68 ~ radiohead[d1c1]::mesh::{impl#1}::set_timeout)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:68 ~ radiohead[d1c1]::mesh::{impl#1}::set_timeout) prepared; start analyze of DefId(0:68 ~ radiohead[d1c1]::mesh::{impl#1}::set_timeout)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 27 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:69 ~ radiohead[d1c1]::mesh::{impl#1}::set_retries)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:69 ~ radiohead[d1c1]::mesh::{impl#1}::set_retries) prepared; start analyze of DefId(0:69 ~ radiohead[d1c1]::mesh::{impl#1}::set_retries)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 28 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:70 ~ radiohead[d1c1]::mesh::{impl#1}::rx_good)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:70 ~ radiohead[d1c1]::mesh::{impl#1}::rx_good) prepared; start analyze of DefId(0:70 ~ radiohead[d1c1]::mesh::{impl#1}::rx_good)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 29 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:71 ~ radiohead[d1c1]::mesh::{impl#1}::rx_bad)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:71 ~ radiohead[d1c1]::mesh::{impl#1}::rx_bad) prepared; start analyze of DefId(0:71 ~ radiohead[d1c1]::mesh::{impl#1}::rx_bad)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 30 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:72 ~ radiohead[d1c1]::mesh::{impl#1}::tx_good)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:72 ~ radiohead[d1c1]::mesh::{impl#1}::tx_good) prepared; start analyze of DefId(0:72 ~ radiohead[d1c1]::mesh::{impl#1}::tx_good)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 31 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:73 ~ radiohead[d1c1]::mesh::{impl#1}::last_rssi)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:73 ~ radiohead[d1c1]::mesh::{impl#1}::last_rssi) prepared; start analyze of DefId(0:73 ~ radiohead[d1c1]::mesh::{impl#1}::last_rssi)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 32 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:74 ~ radiohead[d1c1]::mesh::{impl#1}::retransmissions)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] facts of DefId(0:74 ~ radiohead[d1c1]::mesh::{impl#1}::retransmissions) prepared; start analyze of DefId(0:74 ~ radiohead[d1c1]::mesh::{impl#1}::retransmissions)
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] borrow checked: 33 / 34
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.843Z INFO  [rustowlc::core] start borrowck of DefId(0:113 ~ radiohead[d1c1]::main)
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core::analyze] facts of DefId(0:113 ~ radiohead[d1c1]::main) prepared; start analyze of DefId(0:113 ~ radiohead[d1c1]::main)
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] borrow checked: 34 / 34
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.844Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.845Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T07:08:34.847Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/driver.rs
+2026-03-21T07:08:34.848Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/driver.rs
+2026-03-21T07:08:34.851Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/driver.rs
+2026-03-21T07:08:34.851Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.852Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.852Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.854Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.855Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.855Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.856Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.858Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.862Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.874Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.888Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.888Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.889Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.891Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.891Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.891Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.892Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.892Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.892Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.892Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.892Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.893Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.893Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.893Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs
+2026-03-21T07:08:34.893Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/lib.rs
+2026-03-21T07:08:34.912Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/src/mesh.rs

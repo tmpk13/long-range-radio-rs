@@ -1,0 +1,13 @@
+[package]
+name = "radiohead-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust FFI wrapper for RadioHead mesh routing on ESP32-C3"
+
+[lib]
+name = "radiohead"
+
+[dependencies]
+
+[build-dependencies]
+cc = "1"
