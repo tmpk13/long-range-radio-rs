@@ -25,7 +25,7 @@ use sx1262_mesh_rs::radio::Sx1262Driver;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 /// This node's mesh address (change per device).
-const THIS_ADDRESS: u8 = 1;
+const THIS_ADDRESS: u8 = 2;
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
 
@@ -35,18 +35,18 @@ const RF_FREQ: u32 = 915_000_000;
 )]
 
 /* 
-xiao ESP32c3 - sx1262
+    xiao ESP32c3 - sx1262
 
-L             R
-=========================================
-GPIO 2   D0      |       5V   
-GPIO 3   DIO1    |       GND
-GPIO 4   RST     |       3V3   
-GPIO 5   BUSY    |       GPIO 10    MOSI
-GPIO 6   NSS     |       GPIO 9     MISO
-GPIO 7   RF_SW   |       GPIO 8     SCK
-GPIO 21  D6      |       GPIO 20    D7
-=========================================
+    L             R
+    =========================================
+    GPIO 2   D0      |       5V   
+    GPIO 3   DIO1    |       GND
+    GPIO 4   RST     |       3V3   
+    GPIO 5   BUSY    |       GPIO 10    MOSI      
+    GPIO 6   NSS     |       GPIO 9     MISO
+    GPIO 7   RF_SW   |       GPIO 8     SCK
+    GPIO 21  D6      |       GPIO 20    D7
+    =========================================
 
 */
 #[main]
@@ -56,14 +56,14 @@ fn main() -> ! {
 
     // ---- SPI + GPIO pin assignments ------------------------------------
     // Adjust these to match your board's wiring.
-    let sclk = peripherals.GPIO6;
-    let miso = peripherals.GPIO5;
-    let mosi = peripherals.GPIO7;
-    let cs = Output::new(peripherals.GPIO8, Level::High, OutputConfig::default());
-    let nrst = Output::new(peripherals.GPIO10, Level::High, OutputConfig::default());
-    let busy = Input::new(peripherals.GPIO3, InputConfig::default());
-    let ant = Output::new(peripherals.GPIO9, Level::Low, OutputConfig::default());
-    let dio1 = Input::new(peripherals.GPIO4, InputConfig::default().with_pull(Pull::Down));
+    let sclk = peripherals.GPIO8;
+    let miso = peripherals.GPIO9;
+    let mosi = peripherals.GPIO10;
+    let cs = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
+    let nrst = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
+    let busy = Input::new(peripherals.GPIO5, InputConfig::default());
+    let ant = Output::new(peripherals.GPIO7, Level::High, OutputConfig::default());
+    let dio1 = Input::new(peripherals.GPIO3, InputConfig::default().with_pull(Pull::Down));
 
     // ---- SPI bus -------------------------------------------------------
     let spi_bus = Spi::new(
@@ -80,10 +80,16 @@ fn main() -> ! {
     let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
 
     // ---- SX1262 radio --------------------------------------------------
+    esp_println::println!("Initialising SX1262 radio...");
     let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
     radio.init(RF_FREQ);
+    esp_println::println!("SX1262 init complete, checking hardware:");
+    if !radio.print_diagnostics() {
+        esp_println::println!("WARNING: Radio not responding! Check wiring.");
+    }
 
     // ---- RadioHead mesh ------------------------------------------------
+    esp_println::println!("Starting RadioHead mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
     let mut mesh = unsafe { radiohead::RhMesh::new(&mut radio, THIS_ADDRESS) };
     mesh.init();
 
@@ -91,18 +97,23 @@ fn main() -> ! {
     mesh.set_timeout(200);
     mesh.set_retries(3);
 
-    esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
+    esp_println::println!("Mesh node {} ready — listening and broadcasting every 10s", THIS_ADDRESS);
 
     // ---- Main loop -----------------------------------------------------
     let mut rx_buf = [0u8; 64];
-    let mut tick = Instant::now();
+    // Stagger first TX by address so nodes don't transmit simultaneously
+    let mut tick = Instant::now() - Duration::from_secs(THIS_ADDRESS as u64 * 3);
+    let mut tx_count: u32 = 0;
+    let mut rx_count: u32 = 0;
 
     loop {
         // Poll for incoming messages (also handles routing for other nodes)
         if let Some(msg) = mesh.recv(&mut rx_buf) {
+            rx_count += 1;
             let payload = &rx_buf[..msg.len as usize];
             esp_println::println!(
-                "RX from={} dest={} len={}: {:?}",
+                "RX #{} from={} dest={} len={}: {:?}",
+                rx_count,
                 msg.source,
                 msg.dest,
                 msg.len,
@@ -110,14 +121,22 @@ fn main() -> ! {
             );
         }
 
-        // Send a heartbeat every 10 seconds (to broadcast address 0xFF)
+        // Send a heartbeat every ~10 seconds (to broadcast address 0xFF)
         if tick.elapsed() > Duration::from_secs(10) {
-            tick = Instant::now();
+            // Add 0-2s jitter so nodes don't stay in lockstep
+            let jitter_ms = sx1262_mesh_rs::platform::rh_random(0, 2000) as u64;
+            tick = Instant::now() + Duration::from_millis(jitter_ms);
+            tx_count += 1;
             let msg = b"hello";
+            esp_println::println!("TX #{} sending broadcast...", tx_count);
             match mesh.send(msg, 0xFF) {
-                Ok(()) => esp_println::println!("TX ok"),
-                Err(e) => esp_println::println!("TX err: {:?}", e),
+                Ok(()) => esp_println::println!("TX #{} ok (total RX={})", tx_count, rx_count),
+                Err(e) => esp_println::println!("TX #{} err: {:?}", tx_count, e),
             }
+            esp_println::println!(
+                "  radio stats: rx_good={} rx_bad={} tx_good={} rssi={}",
+                mesh.rx_good(), mesh.rx_bad(), mesh.tx_good(), mesh.last_rssi(),
+            );
         }
     }
 }

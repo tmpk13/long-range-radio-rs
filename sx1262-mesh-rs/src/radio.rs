@@ -85,6 +85,25 @@ where
 
         self.radio.init(conf).expect("SX1262 init failed");
     }
+
+    /// Print radio diagnostics to confirm the SX1262 is connected and healthy.
+    /// Returns `true` if the radio responded, `false` if SPI communication failed.
+    pub fn print_diagnostics(&mut self) -> bool {
+        let status = match self.radio.get_status() {
+            Ok(s) => s,
+            Err(e) => {
+                esp_println::println!("  RADIO NOT DETECTED - SPI error: {:?}", e);
+                return false;
+            }
+        };
+        esp_println::println!("  Status: {:?}", status);
+
+        match self.radio.get_device_errors() {
+            Ok(errors) => esp_println::println!("  Errors: {:?}", errors),
+            Err(e) => esp_println::println!("  Could not read errors: {:?}", e),
+        }
+        true
+    }
 }
 
 impl<SPI, NRST, BUSY, ANT, DIO1, SPIERR, PINERR> RadioDriver
