@@ -13,6 +13,7 @@ use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::main;
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::spi::Mode;
+use esp_hal::delay::Delay;
 use esp_hal::time::{Duration, Instant, Rate};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -32,6 +33,22 @@ const RF_FREQ: u32 = 915_000_000;
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
+
+/* 
+xiao ESP32c3 - sx1262
+
+L             R
+=========================================
+GPIO 2   D0      |       5V   
+GPIO 3   DIO1    |       GND
+GPIO 4   RST     |       3V3   
+GPIO 5   BUSY    |       GPIO 10    MOSI
+GPIO 6   NSS     |       GPIO 9     MISO
+GPIO 7   RF_SW   |       GPIO 8     SCK
+GPIO 21  D6      |       GPIO 20    D7
+=========================================
+
+*/
 #[main]
 fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -60,7 +77,7 @@ fn main() -> ! {
     .with_miso(miso)
     .with_mosi(mosi);
 
-    let spi_device = ExclusiveDevice::new_no_delay(spi_bus, cs).unwrap();
+    let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
 
     // ---- SX1262 radio --------------------------------------------------
     let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);

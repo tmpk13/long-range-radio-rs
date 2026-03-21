@@ -59,13 +59,19 @@ impl RhMesh {
     ///   `RhMesh`.  In practice, store it in a `static` or leak it.
     /// * Only one `RhMesh` may exist at a time.
     pub unsafe fn new<D: RadioDriver>(driver: &mut D, this_address: u8) -> Self {
-        let vtable = ffi::RhDriverVtable {
-            poll_recv: trampoline_poll_recv::<D>,
-            send: trampoline_send::<D>,
-            max_message_length: trampoline_max_message_length::<D>,
-        };
+        // The vtable must live as long as the C++ RustDriver object (i.e. forever),
+        // because C++ stores the pointer and dereferences it on every poll/send.
+        // Since only one RhMesh can exist at a time, a single global is fine.
+        use core::mem::MaybeUninit;
+        static mut VTABLE_STORAGE: MaybeUninit<ffi::RhDriverVtable> = MaybeUninit::uninit();
         unsafe {
-            ffi::rh_create(&vtable, driver as *mut D as *mut c_void, this_address);
+            let ptr = &raw mut VTABLE_STORAGE;
+            (*ptr).write(ffi::RhDriverVtable {
+                poll_recv: trampoline_poll_recv::<D>,
+                send: trampoline_send::<D>,
+                max_message_length: trampoline_max_message_length::<D>,
+            });
+            ffi::rh_create((*ptr).as_ptr(), driver as *mut D as *mut c_void, this_address);
         }
         Self {
             _not_send: core::marker::PhantomData,
