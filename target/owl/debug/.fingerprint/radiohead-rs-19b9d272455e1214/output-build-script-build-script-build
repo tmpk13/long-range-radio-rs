@@ -1,12 +1,12 @@
-2026-03-21T09:07:49.880Z INFO  [rustowlc::core] start borrowck of DefId(0:4 ~ build_script_build[21b9]::main)
-2026-03-21T09:07:49.881Z INFO  [rustowlc::core] start borrowck of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0})
-2026-03-21T09:07:49.881Z INFO  [rustowlc::core::analyze] facts of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0}) prepared; start analyze of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0})
-2026-03-21T09:07:49.882Z INFO  [rustowlc::core] borrow checked: 1 / 2
-2026-03-21T09:07:49.882Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
-2026-03-21T09:07:49.882Z INFO  [rustowlc::core::analyze] borrow check finished
-2026-03-21T09:07:49.959Z INFO  [rustowlc::core::analyze] facts of DefId(0:4 ~ build_script_build[21b9]::main) prepared; start analyze of DefId(0:4 ~ build_script_build[21b9]::main)
-2026-03-21T09:07:49.962Z INFO  [rustowlc::core] borrow checked: 2 / 2
-2026-03-21T09:07:49.962Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
-2026-03-21T09:07:49.964Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/build.rs
-2026-03-21T09:07:50.120Z INFO  [rustowlc::core::analyze] borrow check finished
-2026-03-21T09:07:50.186Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/build.rs
+2026-03-21T09:31:22.746Z INFO  [rustowlc::core] start borrowck of DefId(0:4 ~ build_script_build[21b9]::main)
+2026-03-21T09:31:22.746Z INFO  [rustowlc::core] start borrowck of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0})
+2026-03-21T09:31:22.747Z INFO  [rustowlc::core::analyze] facts of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0}) prepared; start analyze of DefId(0:5 ~ build_script_build[21b9]::main::{closure#0})
+2026-03-21T09:31:22.747Z INFO  [rustowlc::core] borrow checked: 1 / 2
+2026-03-21T09:31:22.747Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T09:31:22.747Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T09:31:22.821Z INFO  [rustowlc::core::analyze] facts of DefId(0:4 ~ build_script_build[21b9]::main) prepared; start analyze of DefId(0:4 ~ build_script_build[21b9]::main)
+2026-03-21T09:31:22.822Z INFO  [rustowlc::core] borrow checked: 2 / 2
+2026-03-21T09:31:22.822Z INFO  [rustowlc::core::analyze] start re-computing borrow check with dump: true
+2026-03-21T09:31:22.825Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/build.rs
+2026-03-21T09:31:22.974Z INFO  [rustowlc::core::analyze] borrow check finished
+2026-03-21T09:31:23.037Z INFO  [rustowlc::core] analyzed one item of /home/tmpk/radio-head-rs/build.rs

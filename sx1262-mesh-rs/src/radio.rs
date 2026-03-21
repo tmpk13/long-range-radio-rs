@@ -7,6 +7,8 @@ use sx126x::conf::Config;
 use sx126x::op::*;
 use sx126x::SX126x;
 
+use crate::debug_println;
+
 /// Wrapper around `sx126x::SX126x` that implements [`RadioDriver`].
 pub struct Sx1262Driver<SPI: SpiDevice, NRST, BUSY, ANT, DIO1> {
     radio: SX126x<SPI, NRST, BUSY, ANT, DIO1>,
@@ -96,11 +98,10 @@ where
                 return false;
             }
         };
-        esp_println::println!("  Status: {:?}", status);
-
+        debug_println!("  Status: {:?}", status);
         match self.radio.get_device_errors() {
-            Ok(errors) => esp_println::println!("  Errors: {:?}", errors),
-            Err(e) => esp_println::println!("  Could not read errors: {:?}", e),
+            Ok(errors) => debug_println!("  Errors: {:?}", errors),
+            Err(e) => debug_println!("  Could not read errors: {:?}", e),
         }
         true
     }
@@ -159,7 +160,7 @@ where
 
         // Must go to standby before TX (especially when coming from continuous RX)
         if self.radio.set_standby(StandbyConfig::StbyRc).is_err() {
-            esp_println::println!("  send: set_standby failed");
+            debug_println!("  send: set_standby failed");
             return false;
         }
 
@@ -167,36 +168,39 @@ where
         let _ = self.radio.clear_irq_status(IrqMask::all());
 
         let Ok(()) = self.radio.write_buffer(0x00, data) else {
-            esp_println::println!("  send: write_buffer failed");
+            debug_println!("  send: write_buffer failed");
             return false;
         };
 
         let params: PacketParams = LoRaPacketParams::default()
             .set_preamble_len(8)
+            .set_header_type(LoRaHeaderType::VarLen)
             .set_payload_len(data.len() as u8)
             .set_crc_type(LoRaCrcType::CrcOn)
+            .set_invert_iq(LoRaInvertIq::Standard)
             .into();
         if self.radio.set_packet_params(params).is_err() {
-            esp_println::println!("  send: set_packet_params failed");
+            debug_println!("  send: set_packet_params failed");
             return false;
         }
 
         if self.radio.set_tx(RxTxTimeout::from_ms(3000)).is_err() {
-            esp_println::println!("  send: set_tx failed");
+            debug_println!("  send: set_tx failed");
             return false;
         }
 
-        // Debug: check what mode the chip is actually in after set_tx
-        if let Ok(status) = self.radio.get_status() {
-            esp_println::println!("  send: post-set_tx {:?}", status);
+        if cfg!(feature = "debug") {
+            if let Ok(status) = self.radio.get_status() {
+                debug_println!("  send: post-set_tx {:?}", status);
+            }
         }
 
-        // Poll IRQ for TxDone/Timeout instead of blocking on DIO1 pin
+        // Poll IRQ for TxDone/Timeout — SF7 TX should complete in <100ms
         let start = esp_hal::time::Instant::now();
-        let timeout = esp_hal::time::Duration::from_secs(4);
+        let timeout = esp_hal::time::Duration::from_millis(500);
         loop {
             if start.elapsed() > timeout {
-                esp_println::println!("  TX timeout (no TxDone IRQ after 4s)");
+                debug_println!("  TX timeout (no TxDone IRQ after 500ms)");
                 let _ = self.radio.clear_irq_status(IrqMask::all());
                 return false;
             }

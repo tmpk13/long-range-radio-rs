@@ -18,20 +18,12 @@ use esp_hal::time::{Duration, Instant, Rate};
 
 use embedded_hal_bus::spi::ExclusiveDevice;
 // Ensure platform functions (rh_millis, rh_delay, rh_random) are linked.
+#[macro_use]
 extern crate sx1262_mesh_rs;
 use sx1262_mesh_rs::radio::Sx1262Driver;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 esp_bootloader_esp_idf::esp_app_desc!();
-
-/// Convenience macro that only prints when the `debug` feature is enabled.
-macro_rules! debug_println {
-    ($($arg:tt)*) => {
-        if cfg!(feature = "debug") {
-            esp_println::println!($($arg)*)
-        }
-    };
-}
 
 /// This node's mesh address.
 /// Set at compile time via the `ADDRESS` environment variable, e.g.:
@@ -128,14 +120,15 @@ fn main() -> ! {
 
     // Optional: tweak retransmit behaviour
     mesh.set_timeout(200);
-    mesh.set_retries(3);
+    mesh.set_retries(2);
 
     esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
 
     // ---- Main loop -----------------------------------------------------
     let mut rx_buf = [0u8; 64];
-    // Stagger first TX by address so nodes don't transmit simultaneously
-    let mut tick = Instant::now() - Duration::from_secs(THIS_ADDRESS as u64 * 3);
+    // Stagger first TX by address so nodes don't collide on boot
+    let tx_interval = Duration::from_secs(10);
+    let mut next_tx = Instant::now() + Duration::from_secs(THIS_ADDRESS as u64 * 3);
     let mut tx_count: u32 = 0;
     let mut rx_count: u32 = 0;
 
@@ -159,22 +152,21 @@ fn main() -> ! {
             );
         }
 
-        // Send a heartbeat every ~10 seconds (to broadcast address 0xFF)
-        if tick.elapsed() > Duration::from_secs(10) {
-            // Add 0-2s jitter so nodes don't stay in lockstep
-            let jitter_ms = sx1262_mesh_rs::platform::rh_random(0, 2000) as u64;
-            tick = Instant::now() + Duration::from_millis(jitter_ms);
+        // Send a heartbeat (to broadcast address 0xFF)
+        if Instant::now() > next_tx {
             tx_count += 1;
             let msg = b"hello";
-            debug_println!("TX #{} sending broadcast...", tx_count);
             match mesh.send(msg, 0xFF) {
-                Ok(()) => debug_println!("TX #{} ok (total RX={})", tx_count, rx_count),
-                Err(e) => esp_println::println!("TX #{} err: {:?}", tx_count, e),
+                Ok(()) => esp_println::println!("TX #{}", tx_count),
+                Err(e) => esp_println::println!("TX #{} failed: {:?}", tx_count, e),
             }
             debug_println!(
-                "  radio stats: rx_good={} rx_bad={} tx_good={} rssi={}",
-                mesh.rx_good(), mesh.rx_bad(), mesh.tx_good(), mesh.last_rssi(),
+                "  tx_good={} rx_good={} rx_bad={} rssi={}",
+                mesh.tx_good(), mesh.rx_good(), mesh.rx_bad(), mesh.last_rssi(),
             );
+            // Schedule next TX from now, with 0-3s jitter to avoid repeated collisions
+            let jitter_ms = sx1262_mesh_rs::platform::rh_random(0, 3000) as u64;
+            next_tx = Instant::now() + tx_interval + Duration::from_millis(jitter_ms);
         }
     }
 }
