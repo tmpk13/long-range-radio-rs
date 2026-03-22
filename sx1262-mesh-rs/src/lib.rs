@@ -5,7 +5,7 @@
 macro_rules! debug_println {
     ($($arg:tt)*) => {
         if cfg!(feature = "debug") {
-            esp_println::println!($($arg)*)
+            defmt::debug!($($arg)*)
         }
     };
 }

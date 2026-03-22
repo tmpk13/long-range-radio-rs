@@ -1,38 +1,20 @@
 #![no_std]
 #![no_main]
-#![deny(
-    clippy::mem_forget,
-    reason = "mem::forget is generally not safe to do with esp_hal types, especially those \
-    holding buffers for the duration of a data transfer."
-)]
-#![deny(clippy::large_stack_frames)]
 
-use esp_backtrace as _;
-use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
-use esp_hal::main;
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
-use esp_hal::spi::Mode;
-use esp_hal::delay::Delay;
-use esp_hal::time::{Duration, Instant, Rate};
+use defmt_rtt as _;
+use panic_probe as _;
 
-use embedded_hal_bus::spi::ExclusiveDevice;
-#[macro_use]
-extern crate sx1262_mesh_rs;
-use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
-use sx1262_mesh_rs::radio::Sx1262Driver;
+#[unsafe(link_section = ".boot2")]
+#[used]
+pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_GENERIC_03H;
 
-use nano_mesh::{LoraIo, MeshNode};
-
-// This creates a default app-descriptor required by the esp-idf bootloader.
-esp_bootloader_esp_idf::esp_app_desc!();
+const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
 
 /// This node's mesh address.
 /// Set at compile time via the `ADDRESS` environment variable, e.g.:
 ///   ADDRESS=2 cargo run --release
 /// Defaults to 1 if not specified.
 const THIS_ADDRESS: u8 = {
-    // option_env! reads the variable at compile time; it cannot fail at runtime.
     match option_env!("ADDRESS") {
         Some(s) => {
             let bytes = s.as_bytes();
@@ -42,7 +24,6 @@ const THIS_ADDRESS: u8 = {
             while i < bytes.len() {
                 let d = bytes[i];
                 assert!(d >= b'0' && d <= b'9', "ADDRESS must be a number 0-255");
-                // Manual overflow check for const context
                 let next = n as u16 * 10 + (d - b'0') as u16;
                 assert!(next <= 255, "ADDRESS must be 0-255");
                 n = next as u8;
@@ -53,114 +34,182 @@ const THIS_ADDRESS: u8 = {
         None => 1,
     }
 };
+
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
 
-#[allow(
-    clippy::large_stack_frames,
-    reason = "it's not unusual to allocate larger buffers etc. in main"
-)]
+#[rtic::app(device = rp2040_hal::pac)]
+mod app {
+    use embedded_hal_bus::spi::ExclusiveDevice;
+    use rp2040_hal::clocks::init_clocks_and_plls;
+    use rp2040_hal::gpio::bank0::*;
+    use rp2040_hal::gpio::{FunctionSio, FunctionSpi, Pin, PullDown, PullNone, SioInput, SioOutput};
+    use rp2040_hal::spi::Spi;
+    use rp2040_hal::fugit::RateExtU32;
+    use rp2040_hal::{Clock, Sio, Watchdog};
 
-/*
-    xiao ESP32c3 - sx1262
+    use nano_mesh::{LoraIo, MeshNode};
+    use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
+    use sx1262_mesh_rs::radio::Sx1262Driver;
 
-    XL       SX              XR         SX
-    =========================================
-    GPIO 2   D0      |       5V
-    GPIO 3   DIO1    |       GND
-    GPIO 4   RST     |       3V3
-    GPIO 5   BUSY    |       GPIO 10    MOSI
-    GPIO 6   NSS     |       GPIO 9     MISO
-    GPIO 7   RF_SW   |       GPIO 8     SCK
-    GPIO 21  D6      |       GPIO 20    D7
-    =========================================
+    use super::{RF_FREQ, THIS_ADDRESS, XOSC_CRYSTAL_FREQ};
 
-*/
-#[main]
-fn main() -> ! {
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
+    /*
+        RP2040 Pico - SX1262
 
-    // ---- SPI + GPIO pin assignments ------------------------------------
-    // Adjust these to match your board's wiring.
-    let sclk = peripherals.GPIO8;
-    let miso = peripherals.GPIO9;
-    let mosi = peripherals.GPIO10;
-    let cs = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
-    let nrst = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
-    let busy = Input::new(peripherals.GPIO5, InputConfig::default());
-    let ant = Output::new(peripherals.GPIO7, Level::High, OutputConfig::default());
-    let dio1 = Input::new(peripherals.GPIO3, InputConfig::default().with_pull(Pull::Down));
+        GP2   SCK   (SPI0)
+        GP3   MOSI  (SPI0)
+        GP4   MISO  (SPI0)
+        GP5   NSS
+        GP6   RST
+        GP7   BUSY
+        GP8   RF_SW / ANT
+        GP9   DIO1
+    */
 
-    // ---- SPI bus -------------------------------------------------------
-    let spi_bus = Spi::new(
-        peripherals.SPI2,
-        SpiConfig::default()
-            .with_frequency(Rate::from_mhz(8))
-            .with_mode(Mode::_0),
-    )
-    .unwrap()
-    .with_sck(sclk)
-    .with_miso(miso)
-    .with_mosi(mosi);
+    type SpiPins = (
+        Pin<Gpio3, FunctionSpi, PullDown>,
+        Pin<Gpio4, FunctionSpi, PullDown>,
+        Pin<Gpio2, FunctionSpi, PullDown>,
+    );
+    type Spi0 = Spi<rp2040_hal::spi::Enabled, rp2040_hal::pac::SPI0, SpiPins, 8>;
+    type CsPin = Pin<Gpio5, FunctionSio<SioOutput>, PullDown>;
+    type SpiDev = ExclusiveDevice<Spi0, CsPin, embedded_hal_bus::spi::NoDelay>;
+    type Radio = Sx1262Driver<
+        SpiDev,
+        Pin<Gpio6, FunctionSio<SioOutput>, PullDown>,
+        Pin<Gpio7, FunctionSio<SioInput>, PullNone>,
+        Pin<Gpio8, FunctionSio<SioOutput>, PullDown>,
+        Pin<Gpio9, FunctionSio<SioInput>, PullDown>,
+    >;
 
-    let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
+    #[shared]
+    struct Shared {}
 
-    // ---- SX1262 radio --------------------------------------------------
-    debug_println!("Initialising SX1262 radio...");
-    let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
-    radio.init(RF_FREQ);
-    debug_println!("SX1262 init complete, checking hardware:");
-    if !radio.print_diagnostics() {
-        esp_println::println!("WARNING: Radio not responding! Check wiring.");
+    #[local]
+    struct Local {
+        mesh: MeshNode,
+        io: LoraIo<Radio>,
+        next_tx_ms: u32,
+        tx_count: u32,
+        rx_count: u32,
     }
 
-    // ---- Mesh networking -----------------------------------------------
-    debug_println!("Starting nano-mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
-    let mut io = LoraIo::new(radio);
-    let mut mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+    #[init]
+    fn init(cx: init::Context) -> (Shared, Local) {
+        let mut pac = cx.device;
 
-    esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
+        // ---- Clocks ----------------------------------------------------------
+        let mut watchdog = Watchdog::new(pac.WATCHDOG);
+        let clocks = init_clocks_and_plls(
+            XOSC_CRYSTAL_FREQ,
+            pac.XOSC,
+            pac.CLOCKS,
+            pac.PLL_SYS,
+            pac.PLL_USB,
+            &mut pac.RESETS,
+            &mut watchdog,
+        )
+        .ok()
+        .unwrap();
 
-    // ---- Main loop -----------------------------------------------------
-    // Stagger first TX by address so nodes don't collide on boot
-    let tx_interval = Duration::from_secs(10);
-    let mut next_tx = Instant::now() + Duration::from_secs(THIS_ADDRESS as u64 * 3);
-    let mut tx_count: u32 = 0;
-    let mut rx_count: u32 = 0;
+        // ---- GPIO ------------------------------------------------------------
+        let sio = Sio::new(pac.SIO);
+        let pins = rp2040_hal::gpio::Pins::new(
+            pac.IO_BANK0,
+            pac.PADS_BANK0,
+            sio.gpio_bank0,
+            &mut pac.RESETS,
+        );
 
-    loop {
-        // Drive the mesh protocol (receive, forward, transmit)
-        mesh.update(&mut io, sx1262_mesh_rs::platform::millis());
+        // ---- SPI + GPIO pin assignments --------------------------------------
+        let sclk = pins.gpio2.into_function::<FunctionSpi>();
+        let mosi = pins.gpio3.into_function::<FunctionSpi>();
+        let miso = pins.gpio4.into_function::<FunctionSpi>();
+        let cs = pins.gpio5.into_push_pull_output_in_state(rp2040_hal::gpio::PinState::High);
+        let nrst = pins.gpio6.into_push_pull_output_in_state(rp2040_hal::gpio::PinState::High);
+        let busy = pins.gpio7.into_floating_input();
+        let ant = pins.gpio8.into_push_pull_output_in_state(rp2040_hal::gpio::PinState::High);
+        let dio1 = pins.gpio9.into_pull_down_input();
 
-        // Check for incoming messages
-        if let Some(msg) = mesh.receive() {
-            rx_count += 1;
-            let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
-            esp_println::println!(
-                "RX #{} from={}: {}",
-                rx_count,
-                msg.source,
-                text,
-            );
-            debug_println!(
-                "  len={} rssi={} raw={:?}",
-                msg.data.len(),
-                io.last_rssi(),
-                &msg.data[..],
-            );
+        // ---- SPI bus ---------------------------------------------------------
+        let spi = Spi::<_, _, _, 8>::new(pac.SPI0, (mosi, miso, sclk));
+        let spi = spi.init(
+            &mut pac.RESETS,
+            clocks.peripheral_clock.freq(),
+            8_000_000u32.Hz(),
+            embedded_hal::spi::MODE_0,
+        );
+        let spi_device = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
+
+        // ---- SX1262 radio ----------------------------------------------------
+        defmt::debug!("Initialising SX1262 radio...");
+        let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
+        radio.init(RF_FREQ);
+        defmt::debug!("SX1262 init complete, checking hardware:");
+        if !radio.print_diagnostics() {
+            defmt::warn!("Radio not responding! Check wiring.");
         }
 
-        // Send a heartbeat (broadcast)
-        if Instant::now() > next_tx {
-            tx_count += 1;
-            match mesh.broadcast(b"hello", BROADCAST_LIFETIME) {
-                Ok(()) => esp_println::println!("TX #{}", tx_count),
-                Err(e) => esp_println::println!("TX #{} failed: {:?}", tx_count, e),
+        // ---- Mesh networking -------------------------------------------------
+        defmt::debug!("Starting nano-mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
+        let io = LoraIo::new(radio);
+        let mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+
+        defmt::info!("Mesh node {} ready", THIS_ADDRESS);
+
+        // Stagger first TX by address so nodes don't collide on boot
+        let now = sx1262_mesh_rs::platform::millis();
+        let next_tx_ms = now.wrapping_add(THIS_ADDRESS as u32 * 3000);
+
+        (
+            Shared {},
+            Local {
+                mesh,
+                io,
+                next_tx_ms,
+                tx_count: 0,
+                rx_count: 0,
+            },
+        )
+    }
+
+    #[idle(local = [mesh, io, next_tx_ms, tx_count, rx_count])]
+    fn idle(cx: idle::Context) -> ! {
+        let mesh = cx.local.mesh;
+        let io = cx.local.io;
+        let next_tx_ms = cx.local.next_tx_ms;
+        let tx_count = cx.local.tx_count;
+        let rx_count = cx.local.rx_count;
+
+        loop {
+            // Drive the mesh protocol (receive, forward, transmit)
+            mesh.update(io, sx1262_mesh_rs::platform::millis());
+
+            // Check for incoming messages
+            if let Some(msg) = mesh.receive() {
+                *rx_count += 1;
+                let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
+                defmt::info!(
+                    "RX #{} from={}: {}",
+                    *rx_count,
+                    msg.source,
+                    text,
+                );
             }
-            // Schedule next TX from now, with 0-3s jitter to avoid repeated collisions
-            let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u64;
-            next_tx = Instant::now() + tx_interval + Duration::from_millis(jitter_ms);
+
+            // Send a heartbeat (broadcast)
+            let now = sx1262_mesh_rs::platform::millis();
+            if now.wrapping_sub(*next_tx_ms) < 0x8000_0000 {
+                *tx_count += 1;
+                match mesh.broadcast(b"hello", BROADCAST_LIFETIME) {
+                    Ok(()) => defmt::info!("TX #{}", *tx_count),
+                    Err(e) => defmt::info!("TX #{} failed: {}", *tx_count, defmt::Debug2Format(&e)),
+                }
+                // Schedule next TX with 0-3s jitter
+                let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u32;
+                *next_tx_ms = now.wrapping_add(10_000 + jitter_ms);
+            }
         }
     }
 }

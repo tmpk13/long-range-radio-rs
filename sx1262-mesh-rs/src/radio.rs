@@ -1,6 +1,7 @@
 //! SX1262 radio driver implementing [`PacketRadio`].
 
 use crate::config::{TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
+use crate::platform;
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal::spi::SpiDevice;
 use nano_mesh::PacketRadio;
@@ -101,14 +102,14 @@ where
         let status = match self.radio.get_status() {
             Ok(s) => s,
             Err(e) => {
-                esp_println::println!("  RADIO NOT DETECTED - SPI error: {:?}", e);
+                defmt::warn!("RADIO NOT DETECTED - SPI error: {}", defmt::Debug2Format(&e));
                 return false;
             }
         };
-        debug_println!("  Status: {:?}", status);
+        defmt::debug!("Status: {}", defmt::Debug2Format(&status));
         match self.radio.get_device_errors() {
-            Ok(errors) => debug_println!("  Errors: {:?}", errors),
-            Err(e) => debug_println!("  Could not read errors: {:?}", e),
+            Ok(errors) => defmt::debug!("Errors: {}", defmt::Debug2Format(&errors)),
+            Err(e) => defmt::debug!("Could not read errors: {}", defmt::Debug2Format(&e)),
         }
         true
     }
@@ -128,10 +129,6 @@ where
     type Error = Sx1262Error;
 
     fn poll_recv(&mut self, buf: &mut [u8]) -> Result<Option<(usize, i16)>, Self::Error> {
-        // Enter continuous RX if not already listening.
-        // wait_on_busy() is mandatory after set_rx(): the crate does not wait
-        // internally, and any SPI command (including get_irq_status) issued
-        // while BUSY is high is silently ignored by the SX1262.
         if !self.rx_active {
             self.radio
                 .set_rx(RxTxTimeout::continuous_rx())
@@ -140,14 +137,12 @@ where
             self.rx_active = true;
         }
 
-        // Poll IRQ status over SPI
         let irq = self.radio.get_irq_status().map_err(|_| Sx1262Error::Spi)?;
 
         if !irq.rx_done() {
             return Ok(None);
         }
 
-        // Clear all pending IRQs
         let _ = self.radio.clear_irq_status(IrqMask::all());
 
         let rx_status = self
@@ -172,22 +167,17 @@ where
             .map_err(|_| Sx1262Error::Spi)?;
         let rssi = pkt_status.rssi_pkt() as i16;
 
-        // Stay in RX — continuous mode persists
         Ok(Some((len, rssi)))
     }
 
     fn send(&mut self, data: &[u8]) -> Result<(), Self::Error> {
         self.rx_active = false;
 
-        // Must go to standby before TX (especially when coming from continuous RX).
-        // The crate's set_standby() does not call wait_on_busy() internally, so
-        // we must wait before issuing the next command.
         self.radio
             .set_standby(StandbyConfig::StbyRc)
             .map_err(|_| Sx1262Error::Spi)?;
         let _ = self.radio.wait_on_busy();
 
-        // Clear any pending IRQs from RX mode
         let _ = self.radio.clear_irq_status(IrqMask::all());
 
         self.radio
@@ -209,35 +199,26 @@ where
             .set_tx(RxTxTimeout::from_ms(TX_CHIP_TIMEOUT_MS as u32))
             .map_err(|_| Sx1262Error::Spi)?;
 
-        // Critical: wait for BUSY to go low before polling IRQ status.
-        //
-        // After SetTx, the SX1262 powers up the TCXO via DIO3 and waits for
-        // it to stabilise (tcxo_opts delay = 10 ms). BUSY stays HIGH for the
-        // entire TCXO startup window. Any SPI command issued while BUSY is
-        // high — including GetIrqStatus — is silently ignored. Without this
-        // wait, the polling loop would read stale/garbage IRQ values for the
-        // first ~10 ms and could miss TxDone entirely for short packets
-        // (~80 ms at SF7/BW125) that fire TxDone soon after TX begins.
         let _ = self.radio.wait_on_busy();
 
         if cfg!(feature = "debug") {
             if let Ok(status) = self.radio.get_status() {
-                debug_println!("  send: TX started, chip status = {:?}", status);
+                defmt::debug!("send: TX started, chip status = {}", defmt::Debug2Format(&status));
             }
         }
 
-        // Poll IRQ for TxDone/Timeout — SF7 TX should complete in <100ms
-        let start = esp_hal::time::Instant::now();
-        let timeout = esp_hal::time::Duration::from_millis(TX_POLL_TIMEOUT_MS);
+        // Poll IRQ for TxDone/Timeout
+        let start_ms = platform::millis();
         let result = loop {
-            if start.elapsed() > timeout {
-                debug_println!("  TX timeout (no TxDone IRQ after {}ms)", TX_POLL_TIMEOUT_MS);
+            let elapsed = platform::millis().wrapping_sub(start_ms);
+            if elapsed > TX_POLL_TIMEOUT_MS as u32 {
+                defmt::debug!("TX timeout (no TxDone IRQ after {}ms)", TX_POLL_TIMEOUT_MS);
                 if cfg!(feature = "debug") {
                     if let Ok(errors) = self.radio.get_device_errors() {
-                        debug_println!("  device errors: {:?}", errors);
+                        defmt::debug!("device errors: {}", defmt::Debug2Format(&errors));
                     }
                     if let Ok(status) = self.radio.get_status() {
-                        debug_println!("  chip status at timeout: {:?}", status);
+                        defmt::debug!("chip status at timeout: {}", defmt::Debug2Format(&status));
                     }
                 }
                 let _ = self.radio.clear_irq_status(IrqMask::all());
@@ -252,9 +233,7 @@ where
             }
         };
 
-        // Immediately re-enter continuous RX so the mesh listen period
-        // measures real channel activity from the moment TX finishes,
-        // rather than leaving the radio in standby until the next poll.
+        // Re-enter continuous RX immediately after TX
         if self.radio.set_rx(RxTxTimeout::continuous_rx()).is_ok() {
             let _ = self.radio.wait_on_busy();
             self.rx_active = true;
