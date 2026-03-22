@@ -8,4 +8,4 @@ Run with:
     `ADDRESS=... cargo run --release`  
 
 
-Development was assisted by Claude Code.
+Claude Code was utilized in the development process.
