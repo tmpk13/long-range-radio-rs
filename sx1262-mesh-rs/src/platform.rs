@@ -1,15 +1,25 @@
-//! Platform helper functions.
+//! Platform helper functions for STM32WLE5.
 
-use esp_hal::time::Instant;
+/// System clock frequency in Hz (default MSI = 4 MHz).
+/// Update this if you reconfigure the clock tree.
+pub const SYSCLK_HZ: u32 = 4_000_000;
 
-/// Milliseconds since boot.
+/// Milliseconds since boot (via DWT cycle counter).
+///
+/// The DWT counter is 32-bit and wraps at ~1073 s @ 4 MHz.
+/// Enable the cycle counter in init before calling this:
+/// ```ignore
+/// cx.core.DCB.enable_trace();
+/// cx.core.DWT.enable_cycle_counter();
+/// ```
 pub fn millis() -> u32 {
-    Instant::now().duration_since_epoch().as_millis() as u32
+    let cycles = cortex_m::peripheral::DWT::cycle_count();
+    cycles / (SYSCLK_HZ / 1000)
 }
 
 /// Random number in `[min, max)`.
 ///
-/// Uses a simple xorshift32 PRNG seeded from the system timer.
+/// Uses a simple xorshift32 PRNG seeded from the DWT cycle counter.
 pub fn random(min: i32, max: i32) -> i32 {
     use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -17,8 +27,7 @@ pub fn random(min: i32, max: i32) -> i32 {
 
     let mut s = STATE.load(Ordering::Relaxed);
     if s == 0 {
-        // Seed from the timer
-        s = Instant::now().duration_since_epoch().as_micros() as u32;
+        s = cortex_m::peripheral::DWT::cycle_count();
         if s == 0 {
             s = 1;
         }

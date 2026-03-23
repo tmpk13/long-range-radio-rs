@@ -1,15 +1,5 @@
-[target.riscv32imc-unknown-none-elf]
-runner = "espflash flash --monitor --chip esp32c3"
+[target.thumbv7em-none-eabi]
+runner = "probe-rs run --chip STM32WLE5JCIx"
 
 [build]
-rustflags = [
-  # Required to obtain backtraces (e.g. when using the "esp-backtrace" crate.)
-  # NOTE: May negatively impact performance of produced code
-  "-C", "force-frame-pointers",
-  "-Z", "stack-protector=all",
-]
-
-target = "riscv32imc-unknown-none-elf"
-
-[unstable]
-build-std = ["alloc", "core"]
+target = "thumbv7em-none-eabi"

@@ -14,23 +14,13 @@ debug = []
 
 [dependencies]
 nano-mesh-rs = { path = ".." }
-sx126x = "0.3"
-embedded-hal = "1.0"
-embedded-hal-bus = "0.2"
-
-esp-hal             = { version = "=1.0.0-rc.0", features = ["esp32c3", "unstable"] }
-esp-bootloader-esp-idf = { version = "0.2.0", features = ["esp32c3"] }
-esp-backtrace       = { version = "0.17.0", features = [
-  "esp32c3",
-  "panic-handler",
-  "exception-handler",
-  "println",
-] }
-esp-println         = { version = "0.15.0", features = ["esp32c3"] }
-esp32c3             = { version = "0.31.0", features = ["critical-section"] }
-rtic                = { path = "../.context/rtic/rtic", features = ["riscv-esp32c3-backend"] }
-rtic-monotonics     = { path = "../.context/rtic/rtic-monotonics", features = ["esp32c3-systimer"] }
-
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
+panic-halt = "1.0"
+rtt-target = "0.5"
+rtic = { path = "../.context/rtic/rtic", features = ["thumbv7-backend"] }
+rtic-monotonics = { path = "../.context/rtic/rtic-monotonics", features = ["cortex-m-systick"] }
 
 [profile.dev]
 # Rust debug is too slow.

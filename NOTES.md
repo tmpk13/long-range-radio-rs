@@ -118,3 +118,182 @@ The radio driver implements a `PacketRadio` trait used by the mesh layer.
 The driver manages RX/TX state — entering continuous RX on the first poll,
 transitioning to standby before TX, then polling the IRQ register for
 `TxDone` or `Timeout` rather than blocking on the DIO1 pin.
+
+## stm32wlxx-hal SubGhz API Reference (v0.6.1)
+
+### Feature Flags for STM32WLE5JC
+
+```toml
+[dependencies]
+stm32wlxx-hal = { version = "0.6.1", features = ["stm32wle5", "rt"] }
+```
+
+Available chip features: `stm32wl5x_cm0p`, `stm32wl5x_cm4`, `stm32wle5`.
+Other useful features: `rt` (runtime), `defmt`, `chrono`, `embedded-time`.
+
+### SubGhz Initialization
+
+```rust
+use stm32wlxx_hal::subghz::SubGhz;
+
+// Without DMA (simplest)
+let sg = SubGhz::new(dp.SPI3, &mut dp.RCC);
+
+// With DMA
+let sg = SubGhz::new_with_dma(dp.SPI3, miso_dma, mosi_dma, &mut dp.RCC);
+
+// After sleep wakeup (unsafe, skips reset)
+let sg = unsafe { SubGhz::new_no_reset(dp.SPI3, &mut dp.RCC) };
+
+// Steal without singleton check (unsafe, for RTIC shared resources)
+let sg = unsafe { SubGhz::steal() };
+```
+
+### Typical LoRa Configuration Sequence
+
+```rust
+use stm32wlxx_hal::subghz::*;
+
+// 1. Standby
+sg.set_standby(StandbyClk::Rc)?;
+
+// 2. TCXO and calibration (if board has TCXO)
+sg.set_tcxo_mode(&TcxoMode::new())?;
+sg.calibrate_image(CalibrateImage::ISM_868)?; // or ISM_915
+
+// 3. Regulator
+sg.set_regulator_mode(RegMode::Smps)?; // or RegMode::Ldo
+
+// 4. Buffer base addresses
+sg.set_buffer_base_address(0, 128)?;
+
+// 5. Packet type
+sg.set_packet_type(PacketType::LoRa)?;
+
+// 6. RF frequency
+sg.set_rf_frequency(&RfFreq::F915)?; // Constants: F433, F868, F915
+// Or custom: RfFreq::from_frequency(915_000_000)
+
+// 7. PA config + TX params
+sg.set_pa_config(&PaConfig::HP_22)?;
+// HP_22, HP_20, HP_17, HP_14, LP_15, LP_14, LP_10
+sg.set_tx_params(&TxParams::HP.set_ramp_time(RampTime::Micros200))?;
+
+// 8. LoRa modulation params
+let mod_params = LoRaModParams::new()
+    .set_sf(SpreadingFactor::Sf7)    // Sf5..Sf12
+    .set_bw(LoRaBandwidth::Bw125)   // Bw7..Bw500
+    .set_cr(CodingRate::Cr45)        // Cr45, Cr46, Cr47, Cr48
+    .set_ldro_en(false);
+sg.set_lora_mod_params(&mod_params)?;
+
+// 9. LoRa packet params
+let pkt_params = LoRaPacketParams::new()
+    .set_preamble_len(8)
+    .set_header_type(HeaderType::Variable) // or Fixed
+    .set_payload_len(255)
+    .set_crc_en(true)
+    .set_invert_iq(false);
+sg.set_lora_packet_params(&pkt_params)?;
+
+// 10. Sync word
+sg.set_lora_sync_word(LoRaSyncWord::Public)?; // or Private
+
+// 11. IRQ configuration
+let irq_cfg = CfgIrq::new()
+    .irq_enable_all(Irq::TxDone)
+    .irq_enable_all(Irq::RxDone)
+    .irq_enable_all(Irq::Timeout)
+    .irq_enable_all(Irq::Err);
+sg.set_irq_cfg(&irq_cfg)?;
+```
+
+### Transmitting
+
+```rust
+sg.write_buffer(0, &payload)?;
+sg.set_lora_packet_params(
+    &pkt_params.set_payload_len(payload.len() as u8)
+)?;
+sg.set_tx(Timeout::from_millis_sat(5000))?;
+// Wait for TxDone IRQ (poll or hardware interrupt)...
+let (status, irq_status) = sg.irq_status()?;
+sg.clear_irq_status(irq_status)?;
+```
+
+### Receiving
+
+```rust
+sg.set_rx(Timeout::DISABLED)?; // continuous RX
+// Or with timeout:
+// sg.set_rx(Timeout::from_millis_sat(10_000))?;
+
+// On RxDone IRQ:
+let (status, irq_status) = sg.irq_status()?;
+let (status, payload_len, rx_start) = sg.rx_buffer_status()?;
+let mut buf = [0u8; 255];
+sg.read_buffer(rx_start, &mut buf[..payload_len as usize])?;
+sg.clear_irq_status(irq_status)?;
+
+// RSSI / SNR from last packet:
+let pkt_status = sg.lora_packet_status()?;
+```
+
+### IRQ API
+
+**IRQ variants:** `TxDone`(1), `RxDone`(2), `PreambleDetected`(4),
+`SyncDetected`(8), `HeaderValid`(16), `HeaderErr`(32), `Err`(64),
+`CadDone`(128), `CadDetected`(256), `Timeout`(512).
+
+**IrqLine variants:** `Global`, `Line1`, `Line2`, `Line3`.
+All lines must be enabled for the internal NVIC interrupt to pend.
+
+**CfgIrq builder:**
+```rust
+CfgIrq::new()
+    .irq_enable(IrqLine::Global, Irq::TxDone)  // single line
+    .irq_enable_all(Irq::RxDone)                // all lines
+    .irq_disable_all(Irq::HeaderErr)            // disable on all
+```
+
+**NVIC helpers:**
+- `subghz::unmask_irq()` — unmask SubGHz IRQ in NVIC (unsafe)
+- `subghz::mask_irq()` — mask SubGHz IRQ in NVIC
+- `subghz::rfbusys()` / `rfbusyms()` — check radio busy
+- `subghz::wakeup()` — wake from sleep (unsafe)
+
+### RTIC Integration Notes
+
+The stm32wlxx-hal repo has **no RTIC examples**. The testsuite has
+`subghz.rs` for on-target TX/RX tests (requires two nucleo boards).
+
+For RTIC, bind the `SUBGHZ_RADIO` interrupt to a hardware task and use
+`SubGhz::steal()` or pass via shared resources. The interrupt name in the
+PAC is `SUBGHZ_RADIO`.
+
+### Key Status Methods
+
+- `sg.status()` — radio state (has documented HW bugs)
+- `sg.irq_status()` -> `(Status, u16)` — IRQ flags
+- `sg.rx_buffer_status()` -> `(Status, payload_len, buffer_ptr)`
+- `sg.lora_packet_status()` -> `LoRaPacketStatus` (RSSI, SNR)
+- `sg.rssi_inst()` -> instantaneous RSSI in dBm
+- `sg.op_error()` -> operational error flags
+- `sg.fsk_packet_status()`, `sg.fsk_stats()`, `sg.lora_stats()`
+- `sg.reset_stats()` — clear cumulative stats
+
+### Other Useful Methods
+
+- `sg.set_sleep(SleepCfg)` — enter sleep (unsafe, 500us NSS hold-off)
+- `sg.set_fs()` — frequency synthesis test mode
+- `sg.set_rx_duty_cycle(rx_period, sleep_period)` — duty-cycled RX
+- `sg.set_cad()` / `sg.set_cad_params(&CadParams)` — channel activity detection
+- `sg.set_tx_rx_fallback_mode(FallbackMode)` — auto-mode after TX/RX
+- `sg.set_pa_ocp(Ocp)` — over-current protection
+- `sg.set_rx_gain(PMode)` — RX gain control
+- `sg.free()` -> `(SPI3, MISO, MOSI)` — return peripherals
+
+
+# OpenOCD
+To unlock the `Seeed STM32WLE5 SX1262` using `openocd`
+`openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`
