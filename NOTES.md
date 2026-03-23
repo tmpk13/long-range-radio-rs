@@ -294,6 +294,99 @@ PAC is `SUBGHZ_RADIO`.
 - `sg.free()` -> `(SPI3, MISO, MOSI)` — return peripherals
 
 
+
+---
+
 # OpenOCD
 To unlock the `Seeed STM32WLE5 SX1262` using `openocd`
 `openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`
+
+---
+
+Using a RPI Pico ([DebugProbe](https://github.com/raspberrypi/debugprobe)) attached to the STM32WLE5 SWD  
+| STM32 | Pico |
+|---|---|
+`PA13`  | `GP2`
+`PA14`  | `GP3`
+`NRST`  | `GND`
+
+*NRST was held to GND, while the OpenOCD command was run.*
+*As soon as the command was run, within a fraction of a second the GND was removed from NRST.*
+
+Check probe-rs detects the chip:
+`$ probe-rs info --chip STM32WLE5JCIx`
+
+---
+
+### Unlock
+``` sh
+$ openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"
+Open On-Chip Debugger 0.12.0
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : auto-selecting first available session transport "swd". To override use 'transport select <transport>'.
+none separate
+
+Info : Using CMSIS-DAPv2 interface with VID:PID=0x2e8a:0x000c, serial=E6613852834C0C31
+Info : CMSIS-DAP: SWD supported
+Info : CMSIS-DAP: Atomic commands supported
+Info : CMSIS-DAP: Test domain timer supported
+Info : CMSIS-DAP: FW Version = 2.0.0
+Info : CMSIS-DAP: Interface Initialised (SWD)
+Info : SWCLK/TCK = 0 SWDIO/TMS = 0 TDI = 0 TDO = 0 nTRST = 0 nRESET = 1
+Info : CMSIS-DAP: Interface ready
+Info : clock speed 500 kHz
+Info : SWD DPIDR 0x6ba02477
+Info : [stm32wlx.cpu0] Cortex-M4 r0p1 processor detected
+Info : [stm32wlx.cpu0] target has 6 breakpoints, 4 watchpoints
+Info : starting gdb server for stm32wlx.cpu0 on 3333
+Info : Listening on port 3333 for gdb connections
+Info : [stm32wlx.cpu0] external reset detected
+Error: [stm32wlx.cpu0] clearing lockup after double fault
+Info : [stm32wlx.cpu0] external reset detected
+[stm32wlx.cpu0] halted due to debug-request, current mode: Thread
+xPSR: 0x01000000 pc: 0xfffffffe msp: 0xfffffffc
+Info : device idcode = 0x10036497 (STM32WLE/WL5x - Rev 'unknown' : 0x1003)
+Info : RDP level 1 (0x00)
+Info : flash size = 256 KiB
+Info : flash mode : single-bank
+[stm32wlx.cpu0] halted due to debug-request, current mode: Thread
+xPSR: 0x01000000 pc: 0xfffffffe msp: 0xfffffffc```
+
+```
+
+### Check probe-rs detects the chip  
+
+
+``` sh
+$ probe-rs info --chip STM32WLE5JCIx
+Probing target via JTAG
+-----------------------
+
+Error while probing target: The protocol 'JTAG' could not be selected.
+
+Caused by:
+    The probe does not support the JTAG protocol.
+Probing target via SWD
+----------------------
+
+ERROR probe_rs::architecture::arm::memory::romtable: 	Failed to read component information at 0xf0000000.
+ARM Chip with debug port Default:
+
+Debug Port: DPv2, Designer: STMicroelectronics, Part: 0x4970, Revision: 0x0, Instance: 0x00
+├── V1(0) MemoryAP
+│   └── 0 MemoryAP (AmbaAhb3)
+│       ├── 0xe00ff000 ROM Table (Class 1), Designer: STMicroelectronics
+│       ├── 0xe0001000 Generic
+│       ├── 0xe0000000 Peripheral test block
+│       ├── 0xe0040000 Generic
+│       └── 0xe0043000 Coresight Component, Part: 0x0906, Devtype: 0x14, Archid: 0x0000, Designer: ARM Ltd
+└── V1(1) MemoryAP
+    └── 1 MemoryAP (AmbaAhb3)
+```
+
+---
+
+
+
