@@ -23,6 +23,8 @@ Requires a debug probe (e.g. Pi Debug Probe, another Pico running picoprobe) con
 ADDRESS=1 cargo run --release
 ADDRESS=2 cargo run --release
 ADDRESS=... cargo run --release
+
+runner = "elf2uf2-rs -d"
 ```
 
 Claude Code was utilized in the development process.
