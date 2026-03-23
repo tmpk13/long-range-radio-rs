@@ -18,16 +18,18 @@ sx126x = "0.3"
 embedded-hal = "1.0"
 embedded-hal-bus = "0.2"
 
-esp-hal = { version = "~1.0", features = ["esp32c3", "unstable"] }
-esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32c3"] }
-
-critical-section = "1.2.0"
-esp-backtrace = { version = "0.18.1", features = [
+esp-hal             = { version = "=1.0.0-rc.0", features = ["esp32c3", "unstable"] }
+esp-bootloader-esp-idf = { version = "0.2.0", features = ["esp32c3"] }
+esp-backtrace       = { version = "0.17.0", features = [
   "esp32c3",
   "panic-handler",
+  "exception-handler",
   "println",
 ] }
-esp-println = { version = "0.16.1", features = ["esp32c3"] }
+esp-println         = { version = "0.15.0", features = ["esp32c3"] }
+esp32c3             = { version = "0.31.0", features = ["critical-section"] }
+rtic                = { path = "../.context/rtic/rtic", features = ["riscv-esp32c3-backend"] }
+rtic-monotonics     = { path = "../.context/rtic/rtic-monotonics", features = ["esp32c3-systimer"] }
 
 
 [profile.dev]
@@ -40,6 +42,6 @@ codegen-units    = 1     # LLVM can perform better optimizations using a single 
 debug            = 2
 debug-assertions = false
 incremental      = false
-lto              = 'fat'
+lto              = 'thin'
 opt-level        = 's'
 overflow-checks  = false

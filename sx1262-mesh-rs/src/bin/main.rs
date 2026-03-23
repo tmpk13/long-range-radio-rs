@@ -8,21 +8,9 @@
 #![deny(clippy::large_stack_frames)]
 
 use esp_backtrace as _;
-use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
-use esp_hal::main;
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
-use esp_hal::spi::Mode;
-use esp_hal::delay::Delay;
-use esp_hal::time::{Duration, Instant, Rate};
 
-use embedded_hal_bus::spi::ExclusiveDevice;
 #[macro_use]
 extern crate sx1262_mesh_rs;
-use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
-use sx1262_mesh_rs::radio::Sx1262Driver;
-
-use nano_mesh::{LoraIo, MeshNode};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -53,13 +41,9 @@ const THIS_ADDRESS: u8 = {
         None => 1,
     }
 };
+
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
-
-#[allow(
-    clippy::large_stack_frames,
-    reason = "it's not unusual to allocate larger buffers etc. in main"
-)]
 
 /*
     xiao ESP32c3 - sx1262
@@ -76,91 +60,138 @@ const RF_FREQ: u32 = 915_000_000;
     =========================================
 
 */
-#[main]
-fn main() -> ! {
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
+#[rtic::app(device = esp32c3, dispatchers = [FROM_CPU_INTR0])]
+mod app {
+    use rtic_monotonics::esp32c3::prelude::*;
+    esp32c3_systimer_monotonic!(Mono);
 
-    // ---- SPI + GPIO pin assignments ------------------------------------
-    // Adjust these to match your board's wiring.
-    let sclk = peripherals.GPIO8;
-    let miso = peripherals.GPIO9;
-    let mosi = peripherals.GPIO10;
-    let cs = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
-    let nrst = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
-    let busy = Input::new(peripherals.GPIO5, InputConfig::default());
-    let ant = Output::new(peripherals.GPIO7, Level::High, OutputConfig::default());
-    let dio1 = Input::new(peripherals.GPIO3, InputConfig::default().with_pull(Pull::Down));
+    use embedded_hal_bus::spi::ExclusiveDevice;
+    use esp_hal::Blocking;
+    use esp_hal::clock::CpuClock;
+    use esp_hal::delay::Delay;
+    use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+    use esp_hal::spi::master::{Config as SpiConfig, Spi};
+    use esp_hal::spi::Mode;
+    use esp_hal::time::Rate;
+    use esp_println::println;
 
-    // ---- SPI bus -------------------------------------------------------
-    let spi_bus = Spi::new(
-        peripherals.SPI2,
-        SpiConfig::default()
-            .with_frequency(Rate::from_mhz(8))
-            .with_mode(Mode::_0),
-    )
-    .unwrap()
-    .with_sck(sclk)
-    .with_miso(miso)
-    .with_mosi(mosi);
+    use nano_mesh::{LoraIo, MeshNode};
+    use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
+    use sx1262_mesh_rs::radio::Sx1262Driver;
 
-    let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
+    type SpiDev = ExclusiveDevice<Spi<'static, Blocking>, Output<'static>, Delay>;
+    type Radio =
+        Sx1262Driver<SpiDev, Output<'static>, Input<'static>, Output<'static>, Input<'static>>;
 
-    // ---- SX1262 radio --------------------------------------------------
-    debug_println!("Initialising SX1262 radio...");
-    let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
-    radio.init(RF_FREQ);
-    debug_println!("SX1262 init complete, checking hardware:");
-    if !radio.print_diagnostics() {
-        esp_println::println!("WARNING: Radio not responding! Check wiring.");
+    #[shared]
+    struct Shared {}
+
+    #[local]
+    struct Local {
+        io: LoraIo<Radio>,
+        mesh: MeshNode,
     }
 
-    // ---- Mesh networking -----------------------------------------------
-    debug_println!("Starting nano-mesh (address={}, freq={} Hz)...", THIS_ADDRESS, RF_FREQ);
-    let mut io = LoraIo::new(radio);
-    let mut mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+    #[init]
+    #[allow(clippy::large_stack_frames)]
+    fn init(cx: init::Context) -> (Shared, Local) {
+        let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+        let peripherals = esp_hal::init(config);
 
-    esp_println::println!("Mesh node {} ready", THIS_ADDRESS);
+        Mono::start(cx.device.SYSTIMER);
 
-    // ---- Main loop -----------------------------------------------------
-    // Stagger first TX by address so nodes don't collide on boot
-    let tx_interval = Duration::from_secs(10);
-    let mut next_tx = Instant::now() + Duration::from_secs(THIS_ADDRESS as u64 * 3);
-    let mut tx_count: u32 = 0;
-    let mut rx_count: u32 = 0;
+        // ---- SPI + GPIO pin assignments ------------------------------------
+        let sclk = peripherals.GPIO8;
+        let miso = peripherals.GPIO9;
+        let mosi = peripherals.GPIO10;
+        let cs = Output::new(peripherals.GPIO6, Level::High, OutputConfig::default());
+        let nrst = Output::new(peripherals.GPIO4, Level::High, OutputConfig::default());
+        let busy = Input::new(peripherals.GPIO5, InputConfig::default());
+        let ant = Output::new(peripherals.GPIO7, Level::High, OutputConfig::default());
+        let dio1 =
+            Input::new(peripherals.GPIO3, InputConfig::default().with_pull(Pull::Down));
 
-    loop {
-        // Drive the mesh protocol (receive, forward, transmit)
-        mesh.update(&mut io, sx1262_mesh_rs::platform::millis());
+        // ---- SPI bus -------------------------------------------------------
+        let spi_bus = Spi::new(
+            peripherals.SPI2,
+            SpiConfig::default()
+                .with_frequency(Rate::from_mhz(8))
+                .with_mode(Mode::_0),
+        )
+        .unwrap()
+        .with_sck(sclk)
+        .with_miso(miso)
+        .with_mosi(mosi);
 
-        // Check for incoming messages
-        if let Some(msg) = mesh.receive() {
-            rx_count += 1;
-            let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
-            esp_println::println!(
-                "RX #{} from={}: {}",
-                rx_count,
-                msg.source,
-                text,
-            );
-            debug_println!(
-                "  len={} rssi={} raw={:?}",
-                msg.data.len(),
-                io.last_rssi(),
-                &msg.data[..],
-            );
+        let spi_device = ExclusiveDevice::new(spi_bus, cs, Delay::new()).unwrap();
+
+        // ---- SX1262 radio --------------------------------------------------
+        debug_println!("Initialising SX1262 radio...");
+        let mut radio = Sx1262Driver::new(spi_device, nrst, busy, ant, dio1);
+        radio.init(super::RF_FREQ);
+        debug_println!("SX1262 init complete, checking hardware:");
+        if !radio.print_diagnostics() {
+            println!("WARNING: Radio not responding! Check wiring.");
         }
 
-        // Send a heartbeat (broadcast)
-        if Instant::now() > next_tx {
-            tx_count += 1;
-            match mesh.broadcast(b"hello", BROADCAST_LIFETIME) {
-                Ok(()) => esp_println::println!("TX #{}", tx_count),
-                Err(e) => esp_println::println!("TX #{} failed: {:?}", tx_count, e),
+        // ---- Mesh networking -----------------------------------------------
+        debug_println!(
+            "Starting nano-mesh (address={}, freq={} Hz)...",
+            super::THIS_ADDRESS,
+            super::RF_FREQ
+        );
+        let io = LoraIo::new(radio);
+        let mesh = MeshNode::new(super::THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+
+        println!("Mesh node {} ready", super::THIS_ADDRESS);
+
+        run::spawn().unwrap();
+
+        (Shared {}, Local { io, mesh })
+    }
+
+    #[task(local = [io, mesh], priority = 1)]
+    async fn run(cx: run::Context) {
+        let io = cx.local.io;
+        let mesh = cx.local.mesh;
+
+        // Stagger first TX by address so nodes don't collide on boot
+        let tx_interval = 10_000_u64.millis();
+        let mut next_tx =
+            Mono::now() + (super::THIS_ADDRESS as u64 * 3_000).millis();
+        let mut tx_count: u32 = 0;
+        let mut rx_count: u32 = 0;
+
+        loop {
+            // Drive the mesh protocol (receive, forward, transmit)
+            mesh.update(io, sx1262_mesh_rs::platform::millis());
+
+            // Check for incoming messages
+            if let Some(msg) = mesh.receive() {
+                rx_count += 1;
+                let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
+                println!("RX #{} from={}: {}", rx_count, msg.source, text);
+                debug_println!(
+                    "  len={} rssi={} raw={:?}",
+                    msg.data.len(),
+                    io.last_rssi(),
+                    &msg.data[..],
+                );
             }
-            // Schedule next TX from now, with 0-3s jitter to avoid repeated collisions
-            let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u64;
-            next_tx = Instant::now() + tx_interval + Duration::from_millis(jitter_ms);
+
+            // Send a heartbeat (broadcast)
+            if Mono::now() >= next_tx {
+                tx_count += 1;
+                match mesh.broadcast(b"hello", BROADCAST_LIFETIME) {
+                    Ok(()) => println!("TX #{}", tx_count),
+                    Err(e) => println!("TX #{} failed: {:?}", tx_count, e),
+                }
+                // Schedule next TX from now, with 0-3s jitter to avoid repeated collisions
+                let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u64;
+                next_tx = Mono::now() + tx_interval + jitter_ms.millis();
+            }
+
+            Mono::delay(1_u64.millis()).await;
         }
     }
 }
