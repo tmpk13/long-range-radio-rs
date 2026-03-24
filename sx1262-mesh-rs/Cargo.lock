@@ -279,14 +279,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
 
 [[package]]
-name = "nano-mesh-rs"
-version = "0.2.0"
-dependencies = [
- "embedded-io",
- "embedded-nano-mesh",
-]
-
-[[package]]
 name = "nb"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -579,7 +571,8 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "embedded-graphics",
- "nano-mesh-rs",
+ "embedded-io",
+ "embedded-nano-mesh",
  "panic-halt",
  "rtic",
  "rtic-monotonics",
