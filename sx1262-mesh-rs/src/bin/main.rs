@@ -61,15 +61,11 @@ mod app {
         let dp = cx.device;
 
         // ---- SubGHz radio (integrated SX1262) --------------------------------
-        debug_println!("Initialising SubGHz radio...");
         let mut rcc = dp.RCC;
         let sg = SubGhz::new(dp.SPI3, &mut rcc);
         let mut radio = Sx1262Driver::new(sg);
         radio.init(super::RF_FREQ);
-        debug_println!("SubGHz init complete, checking hardware:");
-        if !radio.print_diagnostics() {
-            rprintln!("WARNING: Radio not responding!");
-        }
+        radio.print_diagnostics();
 
         // ---- Mesh networking -------------------------------------------------
         debug_println!(

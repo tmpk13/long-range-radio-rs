@@ -44,6 +44,7 @@ impl Sx1262Driver {
     ///
     /// Panics if the radio fails to initialise.
     pub fn init(&mut self, rf_frequency: u32) {
+        debug_println!("Initialising SubGHz radio...");
         // Reset the radio and enter standby
         self.radio
             .set_standby(StandbyClk::Rc)
@@ -145,17 +146,19 @@ impl Sx1262Driver {
 
         // Over-current protection
         self.radio.set_pa_ocp(Ocp::Max140m).ok();
+        debug_println!("SubGHz init complete.");
     }
 
     /// Print radio diagnostics. Returns `true` if the radio responds.
     pub fn print_diagnostics(&mut self) -> bool {
+        debug_println!("Checking radio hardware:");
         match self.radio.status() {
             Ok(s) => {
                 debug_println!("  Status: {:?}", s);
                 true
             }
             Err(_) => {
-                rtt_target::rprintln!("  RADIO NOT DETECTED");
+                rtt_target::rprintln!("WARNING: Radio not responding!");
                 false
             }
         }
