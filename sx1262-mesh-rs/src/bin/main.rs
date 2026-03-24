@@ -20,6 +20,10 @@ const RF_FREQ: u32 = 915_000_000;
     TCXO:  32 MHz on DIO3 (configured via SubGHz command)
     RF SW: controlled via DIO2 (set_dio2_as_rf_switch_ctrl)
 
+    I2C2 display (SSD1306 128x64):
+        SCL — PB15
+        SDA — PA15
+
     Debug output via RTT (probe-rs / SWD).
 */
 
@@ -28,14 +32,30 @@ mod app {
     use rtic_monotonics::systick::prelude::*;
     systick_monotonic!(Mono, 1000);
 
+    use embedded_graphics::{
+        mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+        pixelcolor::BinaryColor,
+        prelude::*,
+        text::{Baseline, Text},
+    };
     use nano_mesh::{LoraIo, MeshNode};
     use rtt_target::{rprintln, rtt_init_print};
-    use stm32wlxx_hal::subghz::SubGhz;
+    use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
+    use stm32wlxx_hal::{
+        gpio::{pins, PortA, PortB},
+        i2c::I2c2,
+        subghz::SubGhz,
+    };
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
     use sx1262_mesh_rs::radio::Sx1262Driver;
 
     type Radio = Sx1262Driver;
+    type Display = Ssd1306<
+        I2CInterface<I2c2<(pins::B15, pins::A15)>>,
+        DisplaySize128x64,
+        BufferedGraphicsMode<DisplaySize128x64>,
+    >;
 
     #[shared]
     struct Shared {}
@@ -44,6 +64,7 @@ mod app {
     struct Local {
         io: LoraIo<Radio>,
         mesh: MeshNode,
+        display: Display,
     }
 
     #[init]
@@ -67,6 +88,22 @@ mod app {
         radio.init(super::RF_FREQ);
         radio.print_diagnostics();
 
+        // ---- I2C2 display (SSD1306 128x64) -----------------------------------
+        let gpioa = PortA::split(dp.GPIOA, &mut rcc);
+        let gpiob = PortB::split(dp.GPIOB, &mut rcc);
+        let i2c = cortex_m::interrupt::free(|cs| {
+            I2c2::new(dp.I2C2, (gpiob.b15, gpioa.a15), 100_000, &mut rcc, false, cs)
+        });
+        let mut display = Ssd1306::new(
+            I2CDisplayInterface::new(i2c),
+            DisplaySize128x64,
+            DisplayRotation::Rotate0,
+        )
+        .into_buffered_graphics_mode();
+        display.init().unwrap();
+        display.clear(BinaryColor::Off).ok();
+        display.flush().ok();
+
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
             "Starting nano-mesh (address={}, freq={} Hz)...",
@@ -80,13 +117,19 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh })
+        (Shared {}, Local { io, mesh, display })
     }
 
-    #[task(local = [io, mesh], priority = 1)]
+    #[task(local = [io, mesh, display], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
+        let display = cx.local.display;
+
+        let text_style = MonoTextStyleBuilder::new()
+            .font(&FONT_6X10)
+            .text_color(BinaryColor::On)
+            .build();
 
         // Stagger first TX by address so nodes don't collide on boot
         let tx_interval = 10_000_u32.millis();
@@ -109,6 +152,12 @@ mod app {
                     io.last_rssi(),
                     &msg.data[..],
                 );
+
+                display.clear(BinaryColor::Off).ok();
+                Text::with_baseline(text, Point::zero(), text_style, Baseline::Top)
+                    .draw(display)
+                    .ok();
+                display.flush().ok();
             }
 
             // Send a heartbeat (broadcast)

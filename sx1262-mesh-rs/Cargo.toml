@@ -21,6 +21,8 @@ panic-halt = "1.0"
 rtt-target = "0.5"
 rtic = { path = "../.context/rtic/rtic", features = ["thumbv7-backend"] }
 rtic-monotonics = { path = "../.context/rtic/rtic-monotonics", features = ["cortex-m-systick"] }
+ssd1306 = "0.8"
+embedded-graphics = "0.7"
 
 [profile.dev]
 # Rust debug is too slow.
