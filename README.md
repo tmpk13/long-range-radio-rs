@@ -7,4 +7,8 @@ Run with:
     `ADDRESS=... cargo run --release`  
 
 
+Verbose debugging logging:
+    `ADDRESS=2 cargo run --release --features debug`  
+
+
 Claude Code was utilized in the development process.
