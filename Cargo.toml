@@ -1,0 +1,43 @@
+[package]
+edition      = "2024"
+name         = "sx1262-mesh-rs"
+rust-version = "1.88"
+version      = "0.1.0"
+
+[[bin]]
+name = "sx1262-mesh-rs"
+path = "./src/bin/main.rs"
+
+[features]
+default = []
+debug = []
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
+panic-halt = "1.0"
+rtt-target = "0.5"
+# rtic = { path = "../.context/rtic/rtic", features = ["thumbv7-backend"] }
+# rtic-monotonics = { path = "../.context/rtic/rtic-monotonics", features = ["cortex-m-systick"] }
+
+ssd1306 = "0.8"
+embedded-graphics = "0.8"
+rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
+rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }
+embedded-nano-mesh = "2.1"
+embedded-io = "0.6"
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units    = 1     # LLVM can perform better optimizations using a single thread
+debug            = 2
+debug-assertions = false
+incremental      = false
+lto              = 'thin'
+opt-level        = 's'
+overflow-checks  = false
