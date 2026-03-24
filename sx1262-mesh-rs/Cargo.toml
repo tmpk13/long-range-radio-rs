@@ -19,10 +19,13 @@ cortex-m-rt = "0.7"
 stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
 panic-halt = "1.0"
 rtt-target = "0.5"
-rtic = { path = "../.context/rtic/rtic", features = ["thumbv7-backend"] }
-rtic-monotonics = { path = "../.context/rtic/rtic-monotonics", features = ["cortex-m-systick"] }
+# rtic = { path = "../.context/rtic/rtic", features = ["thumbv7-backend"] }
+# rtic-monotonics = { path = "../.context/rtic/rtic-monotonics", features = ["cortex-m-systick"] }
+
 ssd1306 = "0.8"
-embedded-graphics = "0.7"
+embedded-graphics = "0.8"
+rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
+rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }
 
 [profile.dev]
 # Rust debug is too slow.

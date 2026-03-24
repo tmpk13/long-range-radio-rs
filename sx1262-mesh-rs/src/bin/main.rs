@@ -100,7 +100,7 @@ mod app {
             DisplayRotation::Rotate0,
         )
         .into_buffered_graphics_mode();
-        display.init().unwrap();
+        display.init().ok();
         display.clear(BinaryColor::Off).ok();
         display.flush().ok();
 

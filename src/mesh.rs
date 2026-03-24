@@ -102,9 +102,16 @@ impl MeshNode {
     ///
     /// Returns `None` if no message is available.
     pub fn receive(&mut self) -> Option<MeshMessage> {
-        self.node.receive().map(|pkt| MeshMessage {
-            source: pkt.source_device_identifier,
-            data: pkt.data,
+        self.node.receive().map(|mut pkt| {
+            // Packet::new() pads data to full capacity with null bytes.
+            // Truncate to the actual payload length.
+            if let Some(end) = pkt.data.iter().position(|&b| b == 0) {
+                pkt.data.truncate(end);
+            }
+            MeshMessage {
+                source: pkt.source_device_identifier,
+                data: pkt.data,
+            }
         })
     }
 }
