@@ -11,5 +11,11 @@ macro_rules! debug_println {
 }
 
 pub mod config;
+pub mod io;
+pub mod node;
 pub mod platform;
 pub mod radio;
+
+pub use embedded_nano_mesh::{LifeTimeType, SendError};
+pub use io::LoraIo;
+pub use node::{MeshMessage, MeshNode};

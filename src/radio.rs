@@ -2,7 +2,28 @@
 
 use crate::config::{TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
 use crate::platform;
-use nano_mesh::PacketRadio;
+
+/// A packet-oriented radio interface.
+///
+/// Implement this for your radio hardware to use it with [`crate::io::LoraIo`]
+/// and the mesh layer.
+pub trait PacketRadio {
+    /// Error type for radio operations.
+    type Error: core::fmt::Debug;
+
+    /// Poll for a received packet (non-blocking).
+    ///
+    /// If a packet is available, write it into `buf` and return
+    /// `Ok(Some((bytes_written, rssi_dbm)))`.
+    /// If nothing is available, return `Ok(None)`.
+    fn poll_recv(&mut self, buf: &mut [u8]) -> Result<Option<(usize, i16)>, Self::Error>;
+
+    /// Transmit a raw packet. Blocks until transmission completes.
+    fn send(&mut self, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Maximum packet size in bytes.
+    fn max_packet_len(&self) -> usize;
+}
 use stm32wlxx_hal::subghz::{
     CalibrateImage, CfgIrq, CodingRate, FallbackMode, HeaderType, Irq, LoRaBandwidth,
     LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime,

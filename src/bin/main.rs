@@ -38,7 +38,7 @@ mod app {
         prelude::*,
         text::{Baseline, Text},
     };
-    use nano_mesh::{LoraIo, MeshNode};
+    use sx1262_mesh_rs::{LoraIo, MeshNode};
     use rtt_target::{rprintln, rtt_init_print};
     use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
     use stm32wlxx_hal::{

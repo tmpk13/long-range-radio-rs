@@ -6,7 +6,7 @@ use embedded_nano_mesh::{
     ExactAddressType, LifeTimeType, Node, NodeConfig, PacketDataBytes, SendError,
 };
 
-use crate::adapter::LoraIo;
+use crate::io::LoraIo;
 use crate::radio::PacketRadio;
 use embedded_io::Write as _;
 
