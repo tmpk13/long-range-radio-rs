@@ -102,6 +102,27 @@ up to 6 TX events in rapid succession (originator + forwards), multiplying the
 collision window. Set `BROADCAST_LIFETIME = 1` for direct neighbours; increase
 if intermediate forwarding hops are needed.
 
+## DWT millis() Wrap → SendingQueueIsFull After ~18 Minutes
+
+The original `millis()` implementation divided the raw 32-bit DWT cycle
+counter by `SYSCLK_HZ / 1000`.  At 4 MHz the DWT counter wraps at
+`2^32 / 4000 ≈ 1 073 741 ms ≈ 17.9 minutes`.
+
+`embedded-nano-mesh`'s internal timer checks:
+```rust
+current_time > last_speak_time + listen_period
+```
+After the DWT wrap, `current_time` resets to 0 while `last_speak_time`
+stays near 1 073 741.  The sum `last_speak_time + listen_period ≈ 1 073 941`
+is a valid u32, but `current_time` can never reach it — `is_time_to_speak`
+returns `false` permanently and the transmit queue stops draining.  With
+5 slots (`PACKET_QUEUE_SIZE = 5`) and a 10 s heartbeat, the queue fills in
+~50 s and every subsequent `broadcast()` returns `SendingQueueIsFull`.
+
+Fix: use `wrapping_sub` on successive DWT readings and accumulate elapsed
+ms, so `millis()` returns a monotonically-increasing u32 that wraps only
+at ~49 days.  This lives in `sx1262-mesh-rs/src/platform.rs`.
+
 ## Broadcast Collision Risk
 
 Both nodes boot and start a 10 s TX timer simultaneously. Because LoRa is
