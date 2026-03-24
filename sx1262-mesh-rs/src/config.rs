@@ -29,3 +29,28 @@ pub const MESH_LISTEN_PERIOD_MS: u32 = 200;
 /// transmits once and the peer receives it without re-broadcasting.
 /// Increase if you add intermediate nodes that need to forward packets.
 pub const BROADCAST_LIFETIME: u8 = 1;
+
+/// This node's mesh address.
+/// Set at compile time via the `ADDRESS` environment variable, e.g.:
+///   ADDRESS=2 cargo run --release
+/// Defaults to 1 if not specified.
+pub const THIS_ADDRESS: u8 = {
+    match option_env!("ADDRESS") {
+        Some(s) => {
+            let bytes = s.as_bytes();
+            assert!(bytes.len() > 0, "ADDRESS must not be empty");
+            let mut i = 0;
+            let mut n: u8 = 0;
+            while i < bytes.len() {
+                let d = bytes[i];
+                assert!(d >= b'0' && d <= b'9', "ADDRESS must be a number 0-255");
+                let next = n as u16 * 10 + (d - b'0') as u16;
+                assert!(next <= 255, "ADDRESS must be 0-255");
+                n = next as u8;
+                i += 1;
+            }
+            n
+        }
+        None => 1,
+    }
+};

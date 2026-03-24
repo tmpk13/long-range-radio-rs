@@ -7,31 +7,6 @@ use panic_halt as _;
 #[macro_use]
 extern crate sx1262_mesh_rs;
 
-/// This node's mesh address.
-/// Set at compile time via the `ADDRESS` environment variable, e.g.:
-///   ADDRESS=2 cargo run --release
-/// Defaults to 1 if not specified.
-const THIS_ADDRESS: u8 = {
-    match option_env!("ADDRESS") {
-        Some(s) => {
-            let bytes = s.as_bytes();
-            assert!(bytes.len() > 0, "ADDRESS must not be empty");
-            let mut i = 0;
-            let mut n: u8 = 0;
-            while i < bytes.len() {
-                let d = bytes[i];
-                assert!(d >= b'0' && d <= b'9', "ADDRESS must be a number 0-255");
-                let next = n as u16 * 10 + (d - b'0') as u16;
-                assert!(next <= 255, "ADDRESS must be 0-255");
-                n = next as u8;
-                i += 1;
-            }
-            n
-        }
-        None => 1,
-    }
-};
-
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
 
@@ -56,7 +31,7 @@ mod app {
     use nano_mesh::{LoraIo, MeshNode};
     use rtt_target::{rprintln, rtt_init_print};
     use stm32wlxx_hal::subghz::SubGhz;
-    use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS};
+    use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
     use sx1262_mesh_rs::radio::Sx1262Driver;
 
@@ -99,13 +74,13 @@ mod app {
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
             "Starting nano-mesh (address={}, freq={} Hz)...",
-            super::THIS_ADDRESS,
+            THIS_ADDRESS,
             super::RF_FREQ
         );
         let io = LoraIo::new(radio);
-        let mesh = MeshNode::new(super::THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+        let mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
 
-        rprintln!("Mesh node {} ready", super::THIS_ADDRESS);
+        rprintln!("Mesh node {} ready", THIS_ADDRESS);
 
         run::spawn().unwrap();
 
@@ -119,7 +94,7 @@ mod app {
 
         // Stagger first TX by address so nodes don't collide on boot
         let tx_interval = 10_000_u32.millis();
-        let mut next_tx = Mono::now() + (super::THIS_ADDRESS as u32 * 3_000).millis();
+        let mut next_tx = Mono::now() + (THIS_ADDRESS as u32 * 3_000).millis();
         let mut tx_count: u32 = 0;
         let mut rx_count: u32 = 0;
 
