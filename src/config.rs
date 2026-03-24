@@ -38,7 +38,7 @@ pub const THIS_ADDRESS: u8 = {
     match option_env!("ADDRESS") {
         Some(s) => {
             let bytes = s.as_bytes();
-            assert!(bytes.len() > 0, "ADDRESS must not be empty");
+            assert!(!bytes.is_empty(), "ADDRESS must not be empty");
             let mut i = 0;
             let mut n: u8 = 0;
             while i < bytes.len() {

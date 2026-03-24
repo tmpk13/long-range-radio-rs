@@ -285,11 +285,10 @@ impl PacketRadio for Sx1262Driver {
             .map_err(|_| Sx1262Error::Radio)?;
         self.wait_on_busy();
 
-        if cfg!(feature = "debug") {
-            if let Ok(status) = self.radio.status() {
+        if cfg!(feature = "debug") && let Ok(status) = self.radio.status() {
                 debug_println!("  send: TX started, chip status = {:?}", status);
-            }
         }
+        
 
         // Poll IRQ for TxDone/Timeout
         let start_ms = platform::millis();

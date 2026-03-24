@@ -29,19 +29,17 @@ const RF_FREQ: u32 = 915_000_000;
 
 #[rtic::app(device = stm32wlxx_hal::pac, dispatchers = [SPI1])]
 mod app {
-    use core::str;
-
     use rtic_monotonics::systick::prelude::*;
     systick_monotonic!(Mono, 1000);
 
     use embedded_graphics::{
-        mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10, iso_8859_13::FONT_10X20},
+        mono_font::{MonoTextStyleBuilder, iso_8859_13::FONT_10X20},
         pixelcolor::BinaryColor,
         prelude::*,
         text::{Baseline, Text},
     };
-    use sx1262_mesh_rs::{LoraIo, MeshMessage, MeshNode};
-    use rtt_target::{rprintln, rtt_init, set_print_channel, DownChannel};
+    use sx1262_mesh_rs::{LoraIo, MeshNode};
+    use rtt_target::{rprintln, rtt_init, set_print_channel};
     use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
     use stm32wlxx_hal::{
         gpio::{pins, PortA, PortB},
@@ -67,9 +65,6 @@ mod app {
         io: LoraIo<Radio>,
         mesh: MeshNode,
         display: Display,
-        term_in: DownChannel,
-        input_buf: [u8; 64],
-        input_len: usize,
     }
 
     #[init]
@@ -79,12 +74,8 @@ mod app {
             up: {
                 0: { size: 1024, name: "Terminal" }
             }
-            down: {
-                0: { size: 256, name: "Terminal" }
-            }
         };
         set_print_channel(channels.up.0);
-        let term_in = channels.down.0;
 
         // Enable DWT cycle counter for millis()/random()
         cx.core.DCB.enable_trace();
@@ -131,10 +122,10 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, term_in, input_buf: [0u8; 64], input_len: 0 })
+        (Shared {}, Local { io, mesh, display })
     }
 
-    #[task(local = [io, mesh, display, term_in, input_buf, input_len], priority = 1)]
+    #[task(local = [io, mesh, display], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
@@ -152,29 +143,6 @@ mod app {
         let mut rx_count: u32 = 0;
 
         loop {
-            // Poll RTT terminal input and broadcast on newline
-            #[cfg(feature = "terminal")]
-            {
-                let mut rbuf = [0u8; 16];
-                let n = cx.local.term_in.read(&mut rbuf);
-                for &b in &rbuf[..n] {
-                    if b == b'\n' || b == b'\r' {
-                        if *cx.local.input_len > 0 {
-                            let text = core::str::from_utf8(&cx.local.input_buf[..*cx.local.input_len])
-                                .unwrap_or("<utf8 error>");
-                            match mesh.broadcast(text.as_bytes(), BROADCAST_LIFETIME) {
-                                Ok(()) => rprintln!("TX terminal: {}", text),
-                                Err(e) => rprintln!("TX terminal failed: {:?}", e),
-                            }
-                            *cx.local.input_len = 0;
-                        }
-                    } else if *cx.local.input_len < cx.local.input_buf.len() {
-                        cx.local.input_buf[*cx.local.input_len] = b;
-                        *cx.local.input_len += 1;
-                    }
-                }
-            }
-
             // Drive the mesh protocol (receive, forward, transmit)
             mesh.update(io, sx1262_mesh_rs::platform::millis());
 
