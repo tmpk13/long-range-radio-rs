@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![deny(clippy::large_stack_frames)]
+#![warn(clippy::large_stack_frames)] // warn, not deny — RTIC macro generates large closures we can't annotate
 
 use panic_halt as _;
 
@@ -98,7 +98,6 @@ mod app {
     }
 
     #[init]
-    #[allow(clippy::large_stack_frames)]
     fn init(mut cx: init::Context) -> (Shared, Local) {
         let channels = rtt_init! {
             up: {
@@ -166,7 +165,6 @@ mod app {
     }
 
     #[task(local = [io, mesh, display, flash, ota, iwdg], priority = 1)]
-    #[allow(clippy::large_stack_frames)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
