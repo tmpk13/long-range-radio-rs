@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__crates__search_crates",
+      "mcp__crates__get_crate_info",
+      "mcp__crates__get_crate_documentation",
+      "mcp__crates__get_crate_dependencies"
+    ]
+  }
+}

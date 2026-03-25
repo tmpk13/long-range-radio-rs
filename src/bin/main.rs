@@ -10,6 +10,29 @@ extern crate sx1262_mesh_rs;
 /// RF frequency in Hz (915 MHz ISM band).
 const RF_FREQ: u32 = 915_000_000;
 
+/// Format "OTA XX%" into a buffer, returning the str slice.
+fn format_pct(buf: &mut [u8; 16], pct: u32) -> &str {
+    let prefix = b"OTA ";
+    buf[..4].copy_from_slice(prefix);
+    let mut n = pct;
+    let mut digits = [0u8; 3];
+    let mut i = 0;
+    if n == 0 {
+        digits[0] = b'0';
+        i = 1;
+    } else {
+        while n > 0 && i < 3 {
+            digits[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+            i += 1;
+        }
+        digits[..i].reverse();
+    }
+    buf[4..4 + i].copy_from_slice(&digits[..i]);
+    buf[4 + i] = b'%';
+    core::str::from_utf8(&buf[..5 + i]).unwrap_or("OTA ?%")
+}
+
 /*
     Seeed Wio-E5 (LoRa-E5) — STM32WLE5JC
 
@@ -44,11 +67,14 @@ mod app {
     use stm32wlxx_hal::{
         gpio::{pins, PortA, PortB},
         i2c::I2c2,
+        pac::FLASH,
         subghz::SubGhz,
     };
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
+    use sx1262_mesh_rs::ota_protocol;
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
     use sx1262_mesh_rs::radio::Sx1262Driver;
+    use sx1262_mesh_rs::OtaReceiver;
 
     type Radio = Sx1262Driver;
     type Display = Ssd1306<
@@ -65,6 +91,8 @@ mod app {
         io: LoraIo<Radio>,
         mesh: MeshNode,
         display: Display,
+        flash: FLASH,
+        ota: OtaReceiver,
     }
 
     #[init]
@@ -85,6 +113,10 @@ mod app {
         Mono::start(cx.core.SYST, SYSCLK_HZ);
 
         let dp = cx.device;
+        let mut flash_periph = dp.FLASH;
+
+        // Confirm boot to the bootloader (marks firmware as healthy).
+        sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
         // ---- SubGHz radio (integrated SX1262) --------------------------------
         let mut rcc = dp.RCC;
@@ -117,19 +149,22 @@ mod app {
         );
         let io = LoraIo::new(radio);
         let mesh = MeshNode::new(THIS_ADDRESS, MESH_LISTEN_PERIOD_MS);
+        let ota = OtaReceiver::new();
 
         rprintln!("Mesh node {} ready", THIS_ADDRESS);
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display })
+        (Shared {}, Local { io, mesh, display, flash: flash_periph, ota })
     }
 
-    #[task(local = [io, mesh, display], priority = 1)]
+    #[task(local = [io, mesh, display, flash, ota], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
         let display = cx.local.display;
+        let flash = cx.local.flash;
+        let ota = cx.local.ota;
 
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
@@ -148,29 +183,48 @@ mod app {
 
             // Check for incoming messages
             if let Some(msg) = mesh.receive() {
-                rx_count += 1;
-                let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
-                rprintln!("RX #{} from={}: {}", rx_count, msg.source, text);
-                debug_println!(
-                    "  len={} rssi={} raw={:?}",
-                    msg.data.len(),
-                    io.last_rssi(),
-                    &msg.data[..],
-                );
+                if ota_protocol::is_ota_message(&msg.data) {
+                    // Route to OTA handler
+                    if let Some(response) = ota.handle_message(&msg.data, flash) {
+                        mesh.send(&response.data[..response.len], msg.source, BROADCAST_LIFETIME).ok();
+                    }
+                    // Show OTA progress on display if active
+                    if let Some((done, total)) = ota.progress() {
+                        let pct = (done as u32 * 100) / total as u32;
+                        // Format "OTA XX%" into a fixed buffer
+                        let mut line_buf = [0u8; 16];
+                        let line = super::format_pct(&mut line_buf, pct);
+                        display.clear(BinaryColor::Off).ok();
+                        Text::with_baseline(line, Point::new(5, 64/2), text_style, Baseline::Middle)
+                            .draw(display)
+                            .ok();
+                        display.flush().ok();
+                    }
+                } else {
+                    rx_count += 1;
+                    let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
+                    rprintln!("RX #{} from={}: {}", rx_count, msg.source, text);
+                    debug_println!(
+                        "  len={} rssi={} raw={:?}",
+                        msg.data.len(),
+                        io.last_rssi(),
+                        &msg.data[..],
+                    );
 
-                const LEN: usize = 32;
-                let mut send_header: [u8; LEN] = *b"In:                             ";
-                
-                let offset = 4;
-                let len = text.len().min(LEN-offset);
+                    const LEN: usize = 32;
+                    let mut send_header: [u8; LEN] = *b"In:                             ";
 
-                send_header[offset..offset+len].copy_from_slice(text.as_bytes());
+                    let offset = 4;
+                    let len = text.len().min(LEN-offset);
 
-                display.clear(BinaryColor::Off).ok();
-                Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
-                    .draw(display)
-                    .ok();
-                display.flush().ok();
+                    send_header[offset..offset+len].copy_from_slice(text.as_bytes());
+
+                    display.clear(BinaryColor::Off).ok();
+                    Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
+                        .draw(display)
+                        .ok();
+                    display.flush().ok();
+                }
             }
 
             // Send a heartbeat (broadcast)
