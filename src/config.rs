@@ -30,6 +30,34 @@ pub const MESH_LISTEN_PERIOD_MS: u32 = 200;
 /// Increase if you add intermediate nodes that need to forward packets.
 pub const BROADCAST_LIFETIME: u8 = 1;
 
+/// Current firmware version.
+///
+/// Bumped on each release.  The OTA receiver rejects offers whose version
+/// is less than or equal to this value (downgrade prevention).
+/// Set at compile time via the `FW_VERSION` environment variable, e.g.:
+///   FW_VERSION=2 cargo build --release
+/// Defaults to 1 if not specified.
+pub const FIRMWARE_VERSION: u16 = {
+    match option_env!("FW_VERSION") {
+        Some(s) => {
+            let bytes = s.as_bytes();
+            assert!(!bytes.is_empty(), "FW_VERSION must not be empty");
+            let mut i = 0;
+            let mut n: u16 = 0;
+            while i < bytes.len() {
+                let d = bytes[i];
+                assert!(d >= b'0' && d <= b'9', "FW_VERSION must be a number 0-65535");
+                let next = n as u32 * 10 + (d - b'0') as u32;
+                assert!(next <= 65535, "FW_VERSION must be 0-65535");
+                n = next as u16;
+                i += 1;
+            }
+            n
+        }
+        None => 1,
+    }
+};
+
 /// This node's mesh address.
 /// Set at compile time via the `ADDRESS` environment variable, e.g.:
 ///   ADDRESS=2 cargo run --release

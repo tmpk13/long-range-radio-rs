@@ -138,11 +138,46 @@ ADDRESS=1 cargo build --release -p sx1262-mesh-rs
 cargo build --release -p bootloader
 ```
 
-## Not Yet Implemented
+### OTA Sender (`src/ota_sender.rs`)
 
-- **OTA sender/initiator** -- a gateway node (or separate binary) that
-  reads a `.bin` file and pushes it chunk-by-chunk to a target node.
-- **Watchdog timer** -- auto-revert if new firmware fails to call
-  `confirm_boot()` within a timeout.
-- **Version checking** -- the `version` field is in the protocol but not
-  yet validated by the receiver.
+State machine for initiating OTA transfers from a gateway node.  Reads
+firmware data directly from the DFU flash partition and pushes it
+chunk-by-chunk to a target node using stop-and-wait ARQ.
+
+Usage:
+
+1. Flash the new firmware `.bin` into the DFU partition (pages 64+) using
+   probe-rs.
+2. Compute the CRC: `OtaSender::compute_dfu_crc32(firmware_size)`.
+3. Create the sender: `OtaSender::new(firmware_size, crc32, version)`.
+4. In the main loop, call `next_message()` to get outgoing OTA messages
+   and route incoming OTA responses to `handle_message()`.
+5. Retransmission on timeout (~2 s) is handled internally.
+
+### Watchdog Timer (`src/watchdog.rs`)
+
+Independent Watchdog (IWDG) driver for boot safety.  Started in `init`
+with a 5-second timeout **before** `confirm_boot()` is called.
+
+- If the application hangs during init or fails to reach the main loop,
+  the IWDG resets the MCU.
+- The bootloader sees `SWAP_COMPLETE` (app never confirmed) and reverts
+  to the previous firmware.
+- Once the main loop is running, `watchdog::feed()` is called every
+  iteration to prevent spurious resets.
+- The IWDG runs from the LSI oscillator (~32 kHz) and **cannot be
+  stopped** once started -- this is by design.
+
+### Version Checking
+
+The OTA receiver validates the `version` field in incoming `OTA_OFFER`
+messages against the compile-time `FIRMWARE_VERSION` constant (set via
+the `FW_VERSION` environment variable, default `1`).  Offers with a
+version less than or equal to the running firmware are rejected with
+`BAD_VERSION` (0x02).
+
+Build with a specific version:
+
+```sh
+FW_VERSION=2 ADDRESS=1 cargo build --release -p sx1262-mesh-rs
+```

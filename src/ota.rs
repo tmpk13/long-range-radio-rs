@@ -10,6 +10,7 @@ use core::ptr;
 use stm32wlxx_hal::flash::{AlignedAddr, Flash, Page};
 use stm32wlxx_hal::pac;
 
+use crate::config::FIRMWARE_VERSION;
 use crate::ota_protocol::{self, msg, reason, OtaChunk, OtaChunkAck, OtaOffer};
 
 // ── Flash / partition constants ─────────────────────────────────────────────
@@ -60,6 +61,12 @@ pub struct OtaResponse {
     pub len: usize,
 }
 
+impl Default for OtaReceiver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OtaReceiver {
     pub fn new() -> Self {
         Self {
@@ -105,6 +112,11 @@ impl OtaReceiver {
 
         if offer.firmware_size > MAX_FW_SIZE || offer.firmware_size == 0 {
             return Some(make_reject(reason::NO_SPACE));
+        }
+
+        // Reject downgrades or same-version re-flashes.
+        if offer.version <= FIRMWARE_VERSION {
+            return Some(make_reject(reason::BAD_VERSION));
         }
 
         self.page_buf = [0xFF; PAGE_BUF_SIZE];

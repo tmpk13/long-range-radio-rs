@@ -67,7 +67,7 @@ mod app {
     use stm32wlxx_hal::{
         gpio::{pins, PortA, PortB},
         i2c::I2c2,
-        pac::FLASH,
+        pac::{FLASH, IWDG},
         subghz::SubGhz,
     };
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
@@ -75,6 +75,7 @@ mod app {
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
     use sx1262_mesh_rs::radio::Sx1262Driver;
     use sx1262_mesh_rs::OtaReceiver;
+    use sx1262_mesh_rs::watchdog;
 
     type Radio = Sx1262Driver;
     type Display = Ssd1306<
@@ -93,6 +94,7 @@ mod app {
         display: Display,
         flash: FLASH,
         ota: OtaReceiver,
+        iwdg: IWDG,
     }
 
     #[init]
@@ -114,6 +116,11 @@ mod app {
 
         let dp = cx.device;
         let mut flash_periph = dp.FLASH;
+
+        // Start watchdog (5 s timeout). If the app never reaches confirm_boot
+        // or hangs during init, the MCU resets and the bootloader reverts.
+        let iwdg = dp.IWDG;
+        watchdog::start(&iwdg, 5_000);
 
         // Confirm boot to the bootloader (marks firmware as healthy).
         sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
@@ -155,16 +162,18 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, flash: flash_periph, ota })
+        (Shared {}, Local { io, mesh, display, flash: flash_periph, ota, iwdg })
     }
 
-    #[task(local = [io, mesh, display, flash, ota], priority = 1)]
+    #[task(local = [io, mesh, display, flash, ota, iwdg], priority = 1)]
+    #[allow(clippy::large_stack_frames)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
         let display = cx.local.display;
         let flash = cx.local.flash;
         let ota = cx.local.ota;
+        let iwdg = cx.local.iwdg;
 
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
@@ -255,6 +264,7 @@ mod app {
                 next_tx = Mono::now() + tx_interval + jitter_ms.millis();
             }
 
+            watchdog::feed(iwdg);
             Mono::delay(1_u32.millis()).await;
         }
     }
