@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![warn(clippy::large_stack_frames)] // warn, not deny — RTIC macro generates large closures we can't annotate
+#![warn(clippy::large_stack_frames)]
 
 use panic_halt as _;
 
