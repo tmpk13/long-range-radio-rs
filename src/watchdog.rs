@@ -43,8 +43,10 @@ pub fn start(iwdg: &pac::IWDG, timeout_ms: u32) {
     iwdg.pr.write(|w| w.pr().bits(4));
     // Reload value
     iwdg.rlr.write(|w| w.rl().bits(reload));
-    // Wait for registers to update
-    while iwdg.sr.read().bits() != 0 {}
+    // Wait for prescaler (PVU) and reload (RVU) updates only.
+    // Checking all bits would also wait on WVU (window value update),
+    // which may never clear if WINR was not written, causing a hang.
+    while iwdg.sr.read().bits() & 0x03 != 0 {}
     // Initial reload
     iwdg.kr.write(|w| unsafe { w.key().bits(KEY_RELOAD) });
 }

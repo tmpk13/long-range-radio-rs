@@ -5,6 +5,7 @@
 //! state machine that buffers chunks, writes flash pages, and eventually
 //! triggers a reboot into the new firmware.
 
+use core::cell::UnsafeCell;
 use core::ptr;
 
 use stm32wlxx_hal::flash::{AlignedAddr, Flash, Page};
@@ -27,9 +28,13 @@ const DFU_PAGE_START: u8 = 64;
 /// Maximum firmware size (ACTIVE partition = 112 KB = 56 pages).
 const MAX_FW_SIZE: u32 = 56 * PAGE_SIZE;
 
-// ── Page buffer ─────────────────────────────────────────────────────────────
+// ── Page buffer (static to avoid stack overflow) ────────────────────────────
 
 const PAGE_BUF_SIZE: usize = PAGE_SIZE as usize;
+
+struct StaticPageBuf(UnsafeCell<[u8; PAGE_BUF_SIZE]>);
+unsafe impl Sync for StaticPageBuf {}
+static PAGE_BUF: StaticPageBuf = StaticPageBuf(UnsafeCell::new([0xFF; PAGE_BUF_SIZE]));
 
 // ── OTA state ───────────────────────────────────────────────────────────────
 
@@ -52,7 +57,6 @@ enum State {
 /// OTA firmware-update receiver.
 pub struct OtaReceiver {
     state: State,
-    page_buf: [u8; PAGE_BUF_SIZE],
 }
 
 /// Response to send back to the OTA initiator.
@@ -71,8 +75,15 @@ impl OtaReceiver {
     pub fn new() -> Self {
         Self {
             state: State::Idle,
-            page_buf: [0xFF; PAGE_BUF_SIZE],
         }
+    }
+
+    fn page_buf(&self) -> &[u8; PAGE_BUF_SIZE] {
+        unsafe { &*PAGE_BUF.0.get() }
+    }
+
+    fn page_buf_mut(&mut self) -> &mut [u8; PAGE_BUF_SIZE] {
+        unsafe { &mut *PAGE_BUF.0.get() }
     }
 
     /// Process an incoming OTA mesh message.
@@ -119,7 +130,7 @@ impl OtaReceiver {
             return Some(make_reject(reason::BAD_VERSION));
         }
 
-        self.page_buf = [0xFF; PAGE_BUF_SIZE];
+        self.page_buf_mut().fill(0xFF);
         self.state = State::Active(Receiving {
             offer,
             next_chunk: 0,
@@ -168,7 +179,7 @@ impl OtaReceiver {
         let space = PAGE_BUF_SIZE - offset;
         let to_copy = data_len.min(space);
 
-        self.page_buf[offset..offset + to_copy]
+        self.page_buf_mut()[offset..offset + to_copy]
             .copy_from_slice(&chunk.data[..to_copy]);
 
         // Update state (need to re-borrow after page_buf write)
@@ -193,12 +204,12 @@ impl OtaReceiver {
             };
             rx.current_page += 1;
             rx.page_offset = 0;
-            self.page_buf = [0xFF; PAGE_BUF_SIZE];
+            self.page_buf_mut().fill(0xFF);
 
             // Copy remainder if chunk data spanned a page boundary.
             if to_copy < data_len {
                 let remainder = data_len - to_copy;
-                self.page_buf[..remainder]
+                self.page_buf_mut()[..remainder]
                     .copy_from_slice(&chunk.data[to_copy..data_len]);
                 let rx = match &mut self.state {
                     State::Active(rx) => rx,
@@ -265,7 +276,7 @@ impl OtaReceiver {
 
         // Program page contents
         let addr = unsafe { AlignedAddr::new_unchecked(page.addr()) };
-        if unsafe { flash.program_bytes(&self.page_buf, addr) }.is_err() {
+        if unsafe { flash.program_bytes(self.page_buf(), addr) }.is_err() {
             return false;
         }
 

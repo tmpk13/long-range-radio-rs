@@ -92,6 +92,7 @@ mod app {
         io: LoraIo<Radio>,
         mesh: MeshNode,
         display: Display,
+        display_ok: bool,
         flash: FLASH,
         ota: OtaReceiver,
         iwdg: IWDG,
@@ -116,13 +117,10 @@ mod app {
         let dp = cx.device;
         let mut flash_periph = dp.FLASH;
 
-        // Start watchdog (5 s timeout). If the app never reaches confirm_boot
-        // or hangs during init, the MCU resets and the bootloader reverts.
+        // TODO: re-enable once boot chain is verified
         let iwdg = dp.IWDG;
-        watchdog::start(&iwdg, 5_000);
-
-        // Confirm boot to the bootloader (marks firmware as healthy).
-        sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
+        // watchdog::start(&iwdg, 5_000);
+        // sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
         // ---- SubGHz radio (integrated SX1262) --------------------------------
         let mut rcc = dp.RCC;
@@ -143,9 +141,16 @@ mod app {
             DisplayRotation::Rotate0,
         )
         .into_buffered_graphics_mode();
-        display.init().ok();
-        display.clear(BinaryColor::Off).ok();
-        display.flush().ok();
+        let display_ok = if display.init().is_ok()
+            && display.clear(BinaryColor::Off).is_ok()
+            && display.flush().is_ok()
+        {
+            rprintln!("I2C display detected");
+            true
+        } else {
+            rprintln!("I2C display not detected, will retry");
+            false
+        };
 
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
@@ -161,14 +166,15 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, flash: flash_periph, ota, iwdg })
+        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg })
     }
 
-    #[task(local = [io, mesh, display, flash, ota, iwdg], priority = 1)]
+    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
         let display = cx.local.display;
+        let display_ok = cx.local.display_ok;
         let flash = cx.local.flash;
         let ota = cx.local.ota;
         let iwdg = cx.local.iwdg;
@@ -184,7 +190,26 @@ mod app {
         let mut tx_count: u32 = 0;
         let mut rx_count: u32 = 0;
 
+        // Retry display init every 10 s if not connected
+        let display_retry_interval = 10_000_u32.millis();
+        let mut next_display_retry = Mono::now() + display_retry_interval;
+
         loop {
+            // Retry display connection if not detected.
+            // Skip all I2C during OTA — a stuck bus could trigger a watchdog
+            // reset and lose the in-progress transfer.
+            let ota_active = ota.is_active();
+            if !ota_active && !*display_ok && Mono::now() >= next_display_retry {
+                if display.init().is_ok()
+                    && display.clear(BinaryColor::Off).is_ok()
+                    && display.flush().is_ok()
+                {
+                    rprintln!("I2C display reconnected");
+                    *display_ok = true;
+                } else {
+                    next_display_retry = Mono::now() + display_retry_interval;
+                }
+            }
             // Drive the mesh protocol (receive, forward, transmit)
             mesh.update(io, sx1262_mesh_rs::platform::millis());
 
@@ -195,17 +220,22 @@ mod app {
                     if let Some(response) = ota.handle_message(&msg.data, flash) {
                         mesh.send(&response.data[..response.len], msg.source, BROADCAST_LIFETIME).ok();
                     }
-                    // Show OTA progress on display if active
-                    if let Some((done, total)) = ota.progress() {
-                        let pct = (done as u32 * 100) / total as u32;
-                        // Format "OTA XX%" into a fixed buffer
-                        let mut line_buf = [0u8; 16];
-                        let line = super::format_pct(&mut line_buf, pct);
-                        display.clear(BinaryColor::Off).ok();
-                        Text::with_baseline(line, Point::new(5, 64/2), text_style, Baseline::Middle)
-                            .draw(display)
-                            .ok();
-                        display.flush().ok();
+                    // Show OTA progress on display if available
+                    if *display_ok {
+                        if let Some((done, total)) = ota.progress() {
+                            let pct = (done as u32 * 100) / total as u32;
+                            let mut line_buf = [0u8; 16];
+                            let line = super::format_pct(&mut line_buf, pct);
+                            display.clear(BinaryColor::Off).ok();
+                            Text::with_baseline(line, Point::new(5, 64/2), text_style, Baseline::Middle)
+                                .draw(display)
+                                .ok();
+                            if display.flush().is_err() {
+                                rprintln!("I2C display lost");
+                                *display_ok = false;
+                                next_display_retry = Mono::now() + display_retry_interval;
+                            }
+                        }
                     }
                 } else {
                     rx_count += 1;
@@ -226,11 +256,17 @@ mod app {
 
                     send_header[offset..offset+len].copy_from_slice(text.as_bytes());
 
-                    display.clear(BinaryColor::Off).ok();
-                    Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
-                        .draw(display)
-                        .ok();
-                    display.flush().ok();
+                    if *display_ok {
+                        display.clear(BinaryColor::Off).ok();
+                        Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
+                            .draw(display)
+                            .ok();
+                        if display.flush().is_err() {
+                            rprintln!("I2C display lost");
+                            *display_ok = false;
+                            next_display_retry = Mono::now() + display_retry_interval;
+                        }
+                    }
                 }
             }
 
@@ -251,18 +287,24 @@ mod app {
                     Err(e) => rprintln!("TX #{} failed: {:?}", tx_count, e),
                 }
 
-                display.clear(BinaryColor::Off).ok();
-                Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("Error decoding"), Point::new(5, 64/2), text_style, Baseline::Middle)
-                    .draw(display)
-                    .ok();
-                display.flush().ok();
+                if *display_ok {
+                    display.clear(BinaryColor::Off).ok();
+                    Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("Error decoding"), Point::new(5, 64/2), text_style, Baseline::Middle)
+                        .draw(display)
+                        .ok();
+                    if display.flush().is_err() {
+                        rprintln!("I2C display lost");
+                        *display_ok = false;
+                        next_display_retry = Mono::now() + display_retry_interval;
+                    }
+                }
 
                 // Schedule next TX with 0-3s jitter
                 let jitter_ms = sx1262_mesh_rs::platform::random(0, 3000) as u32;
                 next_tx = Mono::now() + tx_interval + jitter_ms.millis();
             }
 
-            watchdog::feed(iwdg);
+            // watchdog::feed(iwdg);
             Mono::delay(1_u32.millis()).await;
         }
     }

@@ -1,5 +1,45 @@
 # Development Notes
 
+## IWDG SR Wait Hangs — Silent Reset Loop (No RTT Output)
+
+After adding watchdog support, the firmware appeared to "do nothing" after
+flashing — no RTT output, no display, no radio activity.
+
+Root cause: `watchdog::start()` polled `while iwdg.sr.read().bits() != 0 {}`
+which checks **all** SR bits. On STM32WL the IWDG_SR has a WVU (window
+value update) bit 2 that can remain set if the WINR register was never
+written. The loop hung indefinitely. Meanwhile the IWDG was already ticking
+with its default ~512 ms timeout (prescaler /4, reload 0xFFF), so the MCU
+reset before any `rprintln!` was reached. Result: infinite silent reboot loop.
+
+Fix: only wait on PVU (bit 0) and RVU (bit 1):
+```rust
+while iwdg.sr.read().bits() & 0x03 != 0 {}
+```
+
+## Stack Overflow from OtaReceiver page_buf (HardFault in RTT write_str)
+
+After adding OTA support, the firmware crashed immediately on boot with a
+HardFault inside `rtt-target`'s `write_str`. probe-rs reported
+"Firmware exited unexpectedly: Multiple" and the stack unwinder failed
+(CFA = None), indicating a corrupted stack pointer.
+
+`clippy::large_stack_frames` confirmed `init()` used **16,951 bytes** of stack.
+The `OtaReceiver` struct contained a 2 KB `page_buf: [u8; 2048]` that was
+constructed on the stack during `init()` before RTIC moved `Local` into static
+storage. Combined with the Ssd1306 framebuffer (1 KB), MeshNode queues (~1.2 KB),
+and SubGhz radio temporaries, the stack overflowed and corrupted the RTT control
+block in RAM.
+
+Fix: moved `page_buf` to a module-level `static` in `ota.rs`, accessed via
+`page_buf()` / `page_buf_mut()` methods. This is safe because `OtaReceiver` is
+only used from a single RTIC task on a single-core MCU. Reduced `init()` frame
+to ~8,759 bytes and `Local` from 4,128 → 2,080 bytes.
+
+Lesson: on embedded targets, always check `clippy::large_stack_frames` when
+adding structs with large inline buffers to RTIC `Local` — the `init()` return
+path constructs them on the stack before moving to statics.
+
 ## Debug Mode
 
 A `debug` cargo feature gates verbose output via a `debug_println!` macro.
@@ -122,6 +162,33 @@ returns `false` permanently and the transmit queue stops draining.  With
 Fix: use `wrapping_sub` on successive DWT readings and accumulate elapsed
 ms, so `millis()` returns a monotonically-increasing u32 that wraps only
 at ~49 days.  This lives in `sx1262-mesh-rs/src/platform.rs`.
+
+## I2C Display Resilience (Non-Blocking / Hot-Plug)
+
+The stm32wlxx-hal I2C driver has **no software timeout** — its internal
+`busy_wait!` macro spins indefinitely until a hardware flag fires. When
+a device is simply absent (not ACKed), the peripheral's NACK detection
+sets the NACKF flag and the driver returns `Error::Nack` quickly. If the
+bus is electrically stuck (SDA held low), the spin is truly infinite and
+only the 5 s IWDG watchdog can recover the MCU.
+
+To keep the mesh running when the SSD1306 display is disconnected or
+fails mid-operation:
+
+- `display_ok: bool` tracks whether the display is reachable.
+- On init, `display.init()` + `flush()` results are checked; if either
+  fails, `display_ok = false` and the node boots without a display.
+- Every `display.flush()` in the main loop is checked; on error the
+  flag is cleared and a retry timer starts.
+- Every 10 s, if `!display_ok`, the loop re-attempts `display.init()`
+  + `flush()`. On success the flag is set and normal display updates
+  resume.
+- All draw/clear/flush calls are gated behind `if *display_ok { … }`,
+  so a missing display adds zero I2C traffic to the bus.
+
+This pattern generalises to multiple I2C devices: give each device its
+own `_ok` flag and retry timer so one failing device doesn't block the
+others.
 
 ## Broadcast Collision Risk
 

@@ -49,6 +49,14 @@ Verbose debugging logging:
 | 27  | PA10 | I/O  | SPI2_MOSI from MCU |
 | 28  | PB0  | I/O  | Unavailable; suspended treatment |
 
+### I2C Display (Optional)
+
+An SSD1306 128x64 OLED display can be connected on I2C2 (PB15/PA15). The
+display is fully optional — if it is not detected at boot the mesh node
+continues to operate normally and retries the connection every 10 seconds.
+If the display disconnects at runtime it is automatically marked offline
+and re-probed on the same interval.
+
 ### Pin Allocation
 
 | Function | Pins | Notes |
