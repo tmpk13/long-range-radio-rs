@@ -13,6 +13,9 @@ Run with:
 Verbose debugging logging:
     `ADDRESS=2 cargo run --release --features debug`  
 
+*If having trouble loading the program/bootloader*
+*Try plugging the probe in to the usb first then plug in the target board*
+*`openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`*
 
 
 

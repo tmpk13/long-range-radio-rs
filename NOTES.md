@@ -190,6 +190,34 @@ This pattern generalises to multiple I2C devices: give each device its
 own `_ok` flag and retry timer so one failing device doesn't block the
 others.
 
+## probe-rs Timeout / Reset Loop When I2C Display Disconnected
+
+With no display connected, the I2C bus has no external pull-up resistors
+(they live on the display module). Floating SDA/SCL lines cause the HAL's
+`busy_wait!` macro to spin indefinitely — the peripheral never sees NACK
+or ARLO because the bus state is indeterminate. The 5 s IWDG fires, MCU
+resets, bootloader jumps to app, I2C hangs again → perpetual reset loop.
+probe-rs can't establish a stable SWD connection during this loop, so
+`cargo run -r` mostly times out (works occasionally if the timing aligns).
+
+Fix (three layers):
+
+1. **Enable internal pull-ups** on the I2C GPIO pins (`I2c2::new(..., true, cs)`).
+   The HAL's `pullup: bool` parameter configures `Pull::Up` on both SCL/SDA.
+   With pull-ups, a missing device produces a fast NACK instead of a hang.
+   The weak internal pull-ups (~40 kΩ) don't affect boards with external
+   pull-ups (~4.7 kΩ) — they simply parallel.
+
+2. **Probe power-sequencing**: plug the Pico DebugProbe into USB **before**
+   powering the target board. If the target is powered first, probe-rs
+   may fail with a `SwjSequence` command ID mismatch or intermittent
+   timeouts. Note: `--connect-under-reset` does NOT work with this setup
+   because nRST is not wired to the probe (GP14).
+
+3. **Feed watchdog before I2C operations** (init and retry) so the full
+   5 s budget is available for I2C to fail, rather than arriving with a
+   partially-elapsed timer.
+
 ## Broadcast Collision Risk
 
 Both nodes boot and start a 10 s TX timer simultaneously. Because LoRa is
@@ -475,6 +503,3 @@ Debug Port: DPv2, Designer: STMicroelectronics, Part: 0x4970, Revision: 0x0, Ins
 ```
 
 ---
-
-
-

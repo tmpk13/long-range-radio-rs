@@ -136,7 +136,7 @@ mod app {
         let gpioa = PortA::split(dp.GPIOA, &mut rcc);
         let gpiob = PortB::split(dp.GPIOB, &mut rcc);
         let i2c = cortex_m::interrupt::free(|cs| {
-            I2c2::new(dp.I2C2, (gpiob.b15, gpioa.a15), 100_000, &mut rcc, false, cs)
+            I2c2::new(dp.I2C2, (gpiob.b15, gpioa.a15), 100_000, &mut rcc, true, cs)
         });
         let mut display = Ssd1306::new(
             I2CDisplayInterface::new(i2c),
@@ -144,6 +144,7 @@ mod app {
             DisplayRotation::Rotate0,
         )
         .into_buffered_graphics_mode();
+        watchdog::feed(&iwdg);
         let display_ok = if display.init().is_ok()
             && display.clear(BinaryColor::Off).is_ok()
             && display.flush().is_ok()
@@ -203,6 +204,7 @@ mod app {
             // reset and lose the in-progress transfer.
             let ota_active = ota.is_active();
             if !ota_active && !*display_ok && Mono::now() >= next_display_retry {
+                watchdog::feed(iwdg);
                 if display.init().is_ok()
                     && display.clear(BinaryColor::Off).is_ok()
                     && display.flush().is_ok()
