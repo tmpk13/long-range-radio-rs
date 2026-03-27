@@ -117,10 +117,13 @@ mod app {
         let dp = cx.device;
         let mut flash_periph = dp.FLASH;
 
-        // TODO: re-enable once boot chain is verified
+        // Start watchdog (5 s timeout). If the app never reaches confirm_boot
+        // or hangs during init, the MCU resets and the bootloader reverts.
         let iwdg = dp.IWDG;
-        // watchdog::start(&iwdg, 5_000);
-        // sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
+        watchdog::start(&iwdg, 5_000);
+
+        // Confirm boot to the bootloader (marks firmware as healthy).
+        sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
         // ---- SubGHz radio (integrated SX1262) --------------------------------
         let mut rcc = dp.RCC;
@@ -304,7 +307,7 @@ mod app {
                 next_tx = Mono::now() + tx_interval + jitter_ms.millis();
             }
 
-            // watchdog::feed(iwdg);
+            watchdog::feed(iwdg);
             Mono::delay(1_u32.millis()).await;
         }
     }

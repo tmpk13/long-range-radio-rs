@@ -17,7 +17,7 @@ debug = []
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-cortex-m-rt = "0.7"
+cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
 panic-halt = "1.0"
 rtt-target = "0.5"

@@ -1,6 +1,9 @@
 # Rust long range radio mesh
 For the xiao esp32c3 with the xiao SX1262 module  
 
+Load bootloader:
+    `cd bootloader && cargo run --release`
+
 Run with:   
     `ADDRESS=1 cargo run --release`  
     `ADDRESS=2 cargo run --release`  
