@@ -1,5 +1,31 @@
 # Development Notes
 
+## App at 0x08004000 Boots Silent — Missing `set-vtor` Feature
+
+After moving the app from `0x0800_0000` to `0x0800_4000` (to make room for the
+bootloader), the firmware appeared dead — no RTT output, no radio, no display.
+The bootloader at `0x0800_0000` was correctly flashed and its `jump_to_app()`
+sets VTOR before branching.  The app worked fine when linked at `0x0800_0000`.
+
+Root cause: `probe-rs run` resets the chip and then sets the PC directly from
+the ELF entry point, **bypassing the bootloader**.  Because `cortex-m-rt` does
+**not** set VTOR by default, the vector table offset register stayed at the
+reset default `0x0800_0000`.  The first SysTick interrupt (from
+`Mono::start()`) read the vector table from the bootloader's flash instead of
+the app's, jumping to a wrong handler and crashing before any `rprintln!`.
+
+At `0x0800_0000` this was invisible because the default VTOR already matched.
+
+Fix: enable the `set-vtor` feature so `cortex-m-rt`'s Reset handler writes
+VTOR before calling `main()`:
+```toml
+cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
+```
+
+Also added `cargo:rerun-if-changed=memory.x` to `build.rs` — without it,
+changing the flash origin in `memory.x` doesn't trigger a relink and the
+old binary is reused.
+
 ## IWDG SR Wait Hangs — Silent Reset Loop (No RTT Output)
 
 After adding watchdog support, the firmware appeared to "do nothing" after
