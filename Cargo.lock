@@ -30,6 +30,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fe8f5a8a398345e52358e18ff07cc17a568fbca5c6f73873d3a62056309603"
 
 [[package]]
+name = "basestation"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-hal 0.2.7",
+ "embedded-io",
+ "embedded-nano-mesh",
+ "nb 1.1.0",
+ "panic-halt",
+ "rtic",
+ "rtic-monotonics",
+ "rtt-target",
+ "stm32wlxx-hal",
+ "sx1262-mesh-rs",
+]
+
+[[package]]
 name = "bitfield"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -13,6 +13,33 @@ Run with:
 Verbose debugging logging:
     `ADDRESS=2 cargo run --release --features debug`  
 
+### Basestation
+
+The basestation node bridges the mesh network to a host PC via two UART
+connections (RS232 TTL 3.3V FTDI adapters). It handles OTA firmware updates
+and data relay to/from the daemon.
+
+Build and flash:
+    `cd basestation && ADDRESS=10 cargo run --release`
+
+UART wiring:
+
+| UART   | Function   | TX   | RX   | FTDI |
+|--------|------------|------|------|------|
+| USART1 | OTA control | PA9  | PA10 | FTDI #1 |
+| USART2 | Data relay  | PA2  | PA3  | FTDI #2 |
+
+Python host tools (requires `pyserial`, `tqdm`):
+
+    cd basestation/host
+    pip install -r requirements.txt
+
+    # Upload firmware to target node 2, version 3
+    python ota_upload.py -p /dev/ttyUSB0 -t 2 -v 3 firmware.bin
+
+    # Relay mesh data as JSON lines (daemon compat layer)
+    python data_relay.py -p /dev/ttyUSB1
+
 *If having trouble loading the program/bootloader*
 *Try plugging the probe in to the usb first then plug in the target board*
 *`openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`*
