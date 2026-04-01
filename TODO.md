@@ -11,6 +11,8 @@
 
 - [ ] Separate radio logic from main
 
-- [ ] Add basestation OTA node with uart and progress bar for sending out firmware updates
+- [ ] Add basestation OTA node with uart and progress bar for sending out firmware updates that will talk to daemon
+
+
 - [ ] Make sure the OTA updates will not be effected by interruptions.
-- [x] Make it so i2c is polled periodically, not just hanging
+
