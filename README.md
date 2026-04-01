@@ -18,6 +18,8 @@ Verbose debugging logging:
 *`openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`*
 
 
+# First prototype board using Seeed Wio-E5
+![alt text](prototype.jpg)
 
 
 # WIO-E5
