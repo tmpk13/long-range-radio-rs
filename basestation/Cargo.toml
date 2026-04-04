@@ -1,0 +1,23 @@
+[package]
+edition = "2024"
+name = "basestation"
+rust-version = "1.88"
+version = "0.1.0"
+
+[features]
+default = []
+debug = []
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
+stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
+panic-halt = "1.0"
+rtt-target = "0.5"
+rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
+rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }
+embedded-nano-mesh = "2.1"
+embedded-io = "0.6"
+embedded-hal = "0.2"
+nb = "1"
+sx1262-mesh-rs = { path = ".." }
