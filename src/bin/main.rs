@@ -107,6 +107,9 @@ mod app {
         };
         set_print_channel(channels.up.0);
 
+        rprintln!("Starting... 1");
+
+
         // Enable DWT cycle counter for millis()/random()
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
@@ -116,6 +119,9 @@ mod app {
 
         let dp = cx.device;
         let mut flash_periph = dp.FLASH;
+
+        rprintln!("Starting... 2");
+
 
         // Start watchdog (5 s timeout). If the app never reaches confirm_boot
         // or hangs during init, the MCU resets and the bootloader reverts.

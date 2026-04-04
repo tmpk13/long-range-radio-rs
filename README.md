@@ -15,19 +15,19 @@ Verbose debugging logging:
 
 ### Basestation
 
-The basestation node bridges the mesh network to a host PC via two UART
-connections (RS232 TTL 3.3V FTDI adapters). It handles OTA firmware updates
-and data relay to/from the daemon.
+The basestation node bridges the mesh network to a host PC via a single UART
+connection (RS232 TTL 3.3V FTDI adapter). OTA firmware updates and data relay
+are multiplexed on one link using a framed protocol.
 
 Build and flash:
     `cd basestation && ADDRESS=10 cargo run --release`
 
-UART wiring:
+UART wiring (USART1, pins 9-10 on the Wio-E5 module):
 
-| UART   | Function   | TX   | RX   | FTDI |
-|--------|------------|------|------|------|
-| USART1 | OTA control | PA9  | PA10 | FTDI #1 |
-| USART2 | Data relay  | PA2  | PA3  | FTDI #2 |
+| Pin  | Function | Connect to |
+|------|----------|------------|
+| PB6  | TX       | FTDI RX    |
+| PB7  | RX       | FTDI TX    |
 
 Python host tools (requires `pyserial`, `tqdm`):
 
@@ -38,7 +38,7 @@ Python host tools (requires `pyserial`, `tqdm`):
     python ota_upload.py -p /dev/ttyUSB0 -t 2 -v 3 firmware.bin
 
     # Relay mesh data as JSON lines (daemon compat layer)
-    python data_relay.py -p /dev/ttyUSB1
+    python data_relay.py -p /dev/ttyUSB0
 
 *If having trouble loading the program/bootloader*
 *Try plugging the probe in to the usb first then plug in the target board*

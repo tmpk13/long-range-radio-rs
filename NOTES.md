@@ -532,18 +532,16 @@ Debug Port: DPv2, Designer: STMicroelectronics, Part: 0x4970, Revision: 0x0, Ins
 
 ## Basestation Node — UART Pin Selection
 
-The basestation firmware uses two UARTs for host communication via RS232 TTL 3.3V FTDI adapters:
+The basestation uses a single UART (USART1) for all host communication via an
+RS232 TTL 3.3V FTDI adapter. OTA and data relay commands are multiplexed on the
+same link — the frame protocol has distinct command ranges (0x01–0x0F for OTA,
+0x10–0x1F for data relay) so no second UART is needed.
 
-- **USART1** (PA9 TX, PA10 RX) — OTA UART: firmware upload + OTA control/progress
-- **USART2** (PA2 TX, PA3 RX) — Data UART: mesh data relay to/from daemon
+- **USART1** (PB6 TX, PB7 RX) — pins 10/9 on the Wio-E5 module
 
-Both pins are available on the LoRa-E5 SMD module. On the Wio-E5 mini dev board,
-PA9/PA10 are on D3/D2 headers. PA2/PA3 may require direct module soldering on the
-mini board but are accessible on the SMD module for custom PCBs.
-
-Both UARTs use HSI16 (16 MHz) clock source at 115200 baud. The HAL enables HSI16
-automatically when `uart::Clk::Hsi16` is specified — it runs independently of the
-MSI system clock.
+HSI16 (16 MHz) clock source at 115200 baud. The HAL enables HSI16 automatically
+when `uart::Clk::Hsi16` is specified — it runs independently of the MSI system
+clock.
 
 UART frame protocol: `[0xAA sync] [len_lo] [len_hi] [cmd] [payload] [crc8]`
 CRC-8/ITU (poly 0x07) over cmd + payload bytes.
