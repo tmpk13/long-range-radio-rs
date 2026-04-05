@@ -14,8 +14,8 @@ pub mod msg {
     pub const OTA_COMPLETE: u8 = 0xF6;
 }
 
-/// Maximum data bytes per chunk (32 − 1 type − 2 index − 1 reserved = 28).
-pub const CHUNK_DATA_SIZE: usize = 28;
+/// Maximum data bytes per chunk (32 − 1 type − 2 index − 1 length = 27).
+pub const CHUNK_DATA_SIZE: usize = 27;
 
 /// Reject / abort reason codes.
 pub mod reason {
@@ -77,18 +77,22 @@ impl OtaChunk {
     pub fn serialize(&self, buf: &mut [u8; 32]) -> usize {
         buf[0] = msg::OTA_CHUNK;
         buf[1..3].copy_from_slice(&self.index.to_le_bytes());
-        let end = 3 + self.data_len as usize;
-        buf[3..end].copy_from_slice(&self.data[..self.data_len as usize]);
+        buf[3] = self.data_len;
+        let end = 4 + self.data_len as usize;
+        buf[4..end].copy_from_slice(&self.data[..self.data_len as usize]);
         end
     }
 
     pub fn deserialize(data: &[u8]) -> Option<Self> {
-        if data.len() < 2 {
+        if data.len() < 3 {
             return None;
         }
         let index = u16::from_le_bytes([data[0], data[1]]);
-        let payload = &data[2..];
-        let data_len = payload.len().min(CHUNK_DATA_SIZE) as u8;
+        let data_len = data[2].min(CHUNK_DATA_SIZE as u8);
+        let payload = &data[3..];
+        if payload.len() < data_len as usize {
+            return None;
+        }
         let mut chunk_data = [0u8; CHUNK_DATA_SIZE];
         chunk_data[..data_len as usize].copy_from_slice(&payload[..data_len as usize]);
         Some(Self {

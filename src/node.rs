@@ -104,9 +104,17 @@ impl MeshNode {
     pub fn receive(&mut self) -> Option<MeshMessage> {
         self.node.receive().map(|mut pkt| {
             // Packet::new() pads data to full capacity with null bytes.
-            // Truncate to the actual payload length.
-            if let Some(end) = pkt.data.iter().position(|&b| b == 0) {
-                pkt.data.truncate(end);
+            // The library does not expose the real data_length field, so
+            // for text payloads we truncate at the first null byte.
+            //
+            // OTA messages (type 0xF0–0xF6) carry binary firmware data
+            // that legitimately contains 0x00 bytes — do NOT truncate
+            // those.  Each OTA message type encodes its own length.
+            let is_binary = matches!(pkt.data.first(), Some(0xF0..=0xF6));
+            if !is_binary {
+                if let Some(end) = pkt.data.iter().position(|&b| b == 0) {
+                    pkt.data.truncate(end);
+                }
             }
             MeshMessage {
                 source: pkt.source_device_identifier,

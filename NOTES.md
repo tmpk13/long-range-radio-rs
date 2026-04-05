@@ -545,3 +545,30 @@ clock.
 
 UART frame protocol: `[0xAA sync] [len_lo] [len_hi] [cmd] [payload] [crc8]`
 CRC-8/ITU (poly 0x07) over cmd + payload bytes.
+
+## OTA Chunk Null-Byte Truncation (Protocol Change)
+
+`embedded-nano-mesh` pads packet data to full capacity with `0x00` bytes and
+does not expose the real `data_length` field (it is private).  The `receive()`
+wrapper truncated at the first null byte to recover the actual payload length.
+
+This corrupts OTA firmware chunks — binary data legitimately contains `0x00`
+bytes, so truncation silently drops payload data.  The OTA receiver writes
+incomplete chunks to flash, producing a bad firmware image.
+
+Fix (two parts):
+
+1. **Skip null-truncation for OTA messages** (`node.rs`): messages with a
+   first byte in `0xF0..=0xF6` are binary OTA protocol messages and are
+   passed through without truncation.
+
+2. **Serialize `data_len` explicitly in OTA_CHUNK** (`ota_protocol.rs`):
+   the old format inferred chunk length from the serialized message size,
+   which breaks when the mesh layer pads the buffer.  New wire format:
+   `[0xF3 type] [index_lo] [index_hi] [data_len] [data...]`
+   This adds one byte of overhead, reducing `CHUNK_DATA_SIZE` from 28 → 27.
+   The `total_chunks` calculation in `OtaSender::new()` uses `div_ceil` so
+   it adjusts automatically.
+
+**This is a protocol-breaking change** — nodes with old firmware cannot
+exchange OTA chunks with nodes running the new format.

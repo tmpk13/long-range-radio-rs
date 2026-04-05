@@ -1,5 +1,5 @@
 # Rust long range radio mesh
-For the xiao esp32c3 with the xiao SX1262 module  
+For the STM32WLE5 WIO-E5 module  
 
 Load bootloader:
     `cd bootloader && cargo run --release`
