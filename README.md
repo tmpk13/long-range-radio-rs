@@ -1,8 +1,8 @@
 # Rust long range radio mesh
 For the STM32WLE5 WIO-E5 module  
 
-Load bootloader:
-    `cd bootloader && cargo run --release`
+Load bootloader (one-time; no RTT output, Ctrl-C once flashed):
+    `cargo run --release -p bootloader`
 
 Run with:   
     `ADDRESS=1 cargo run --release`  
@@ -13,6 +13,9 @@ Run with:
 Verbose debugging logging:
     `ADDRESS=2 cargo run --release --features debug`  
 
+Attach:
+`probe-rs attach --chip STM32WLE5JCIx --rtt-scan-memory target/thumbv7em-none-eabi/release/sx1262-mesh-rs`
+
 ### Basestation
 
 The basestation node bridges the mesh network to a host PC via a single UART
@@ -20,7 +23,7 @@ connection (RS232 TTL 3.3V FTDI adapter). OTA firmware updates and data relay
 are multiplexed on one link using a framed protocol.
 
 Build and flash:
-    `cd basestation && ADDRESS=10 cargo run --release`
+    `ADDRESS=10 cargo run --release -p basestation`
 
 UART wiring (USART1, pins 9-10 on the Wio-E5 module):
 
@@ -38,7 +41,7 @@ Python host tools (requires `pyserial`, `tqdm`):
     python ota_upload.py -p /dev/ttyUSB0 -t 2 -v 3 firmware.bin
 
     # Relay mesh data as JSON lines (daemon compat layer)
-    python data_relay.py -p /dev/ttyUSB0
+    python data_relay.py -p /dev/ttyACM0
 
 *If having trouble loading the program/bootloader*
 *Try plugging the probe in to the usb first then plug in the target board*
