@@ -26,6 +26,28 @@ Also added `cargo:rerun-if-changed=memory.x` to `build.rs` — without it,
 changing the flash origin in `memory.x` doesn't trigger a relink and the
 old binary is reused.
 
+## Bootloader Linked at Wrong Address — Two-Stage Boot Silent
+
+Symptom: with the normal layout (bootloader at 0x08000000, app at 0x08004000)
+nothing runs — no RTT, no fault. The app runs fine when linked directly at
+0x08000000. Reading the RTT control block symbol in RAM (`nm ... _SEGGER_RTT`,
+then `probe-rs read <addr>`) showed the "SEGGER RTT" magic only in the direct
+build, proving the app's startup never executes via the bootloader path.
+
+Root cause: `cortex-m-rt`'s `link.x` does `INCLUDE memory.x`, and the linker
+resolves that from its working directory first. Cargo runs the linker from the
+workspace root regardless of `cd`, so the bare root `memory.x` (ORIGIN
+0x08004000) shadowed every member — the bootloader linked at 0x08004000, so on
+reset the CPU booted an empty 0x08000000 and the bootloader never ran. Verified
+with `readelf -S <elf> | grep vector_table` (bootloader showed 0x08004000).
+
+Fix: give each crate its own layout via `OUT_DIR` and remove the shadowing
+bare file from the workspace root. Renamed the root `memory.x` to
+`memory-app.x`; each `build.rs` now copies its crate's file into `OUT_DIR` as
+`memory.x` and emits `cargo:rustc-link-search=<OUT_DIR>`. Confirmed:
+bootloader=0x08000000, app/basestation=0x08004000; flashing both then reset
+boots the app (SEGGER RTT magic present, TX heartbeats stream).
+
 ## IWDG SR Wait Hangs — Silent Reset Loop (No RTT Output)
 
 After adding watchdog support, the firmware appeared to "do nothing" after
