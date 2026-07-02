@@ -594,3 +594,21 @@ Fix (two parts):
 
 **This is a protocol-breaking change** — nodes with old firmware cannot
 exchange OTA chunks with nodes running the new format.
+
+## Crate version bumps: embedded-io and ssd1306 must stay pinned
+
+Attempted to bump `embedded-io` 0.6 -> 0.7.1 and `ssd1306` 0.8 -> 0.10.0 in the
+root crate. Both had to be reverted:
+
+- `embedded-io` must stay at 0.6. `embedded-nano-mesh` 2.1.x depends on
+  `embedded-io` 0.6; `Node::update` takes an `I: embedded_io::Read + Write +
+  ReadReady` bound from that 0.6 crate. Bumping our dep to 0.7 pulled a second
+  `embedded-io` into the graph, so `LoraIo`'s 0.7 trait impls no longer
+  satisfied nano-mesh's 0.6 bound. (0.7 also adds a `core::error::Error`
+  supertrait on `embedded_io::Error`.)
+- `ssd1306` must stay at 0.8. 0.9+ moved to `embedded-hal` 1.0, but
+  `stm32wlxx-hal` 0.6 only implements `embedded-hal` 0.2 for its I2C
+  peripherals, so the ssd1306 0.10 driver's trait bounds are unsatisfiable
+  until the HAL gains eh-1.0 support.
+
+`rtt-target` 0.5 -> 0.6.2 and `embedded-nano-mesh` 2.1.9 -> 2.1.11 were fine.
