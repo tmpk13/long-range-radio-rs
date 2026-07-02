@@ -77,6 +77,13 @@ mod app {
     use sx1262_mesh_rs::OtaReceiver;
     use sx1262_mesh_rs::watchdog;
 
+    /// Charger board resources; unit type when the feature is off so the
+    /// RTIC resource plumbing stays identical in both builds.
+    #[cfg(feature = "board")]
+    type BoardRes = sx1262_mesh_rs::board::Board;
+    #[cfg(not(feature = "board"))]
+    type BoardRes = ();
+
     type Radio = Sx1262Driver;
     type Display = Ssd1306<
         I2CInterface<I2c2<(pins::B15, pins::A15)>>,
@@ -96,6 +103,7 @@ mod app {
         flash: FLASH,
         ota: OtaReceiver,
         iwdg: IWDG,
+        board: BoardRes,
     }
 
     #[init]
@@ -114,10 +122,18 @@ mod app {
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
 
-        // Start SysTick monotonic at default MSI 4 MHz
+        let dp = cx.device;
+        let mut rcc = dp.RCC;
+
+        // The charger board runs the core at 16 MHz for buck PWM
+        // resolution.  Must happen before the SysTick monotonic starts
+        // and before any clock-derived peripheral setup.
+        #[cfg(feature = "board")]
+        sx1262_mesh_rs::board::raise_sysclk(&mut rcc);
+
+        // Start SysTick monotonic (MSI 4 MHz, or 16 MHz with `board`)
         Mono::start(cx.core.SYST, SYSCLK_HZ);
 
-        let dp = cx.device;
         let mut flash_periph = dp.FLASH;
 
         rprintln!("Starting... 2");
@@ -132,7 +148,6 @@ mod app {
         sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
         // ---- SubGHz radio (integrated SX1262) --------------------------------
-        let mut rcc = dp.RCC;
         let sg = SubGhz::new(dp.SPI3, &mut rcc);
         let mut radio = Sx1262Driver::new(sg);
         radio.init(super::RF_FREQ);
@@ -162,6 +177,49 @@ mod app {
             false
         };
 
+        // ---- Charger board: senses, buck PWM, SD card ------------------------
+        #[cfg(feature = "board")]
+        let board = {
+            let mut board = cortex_m::interrupt::free(|cs| {
+                sx1262_mesh_rs::board::Board::new(
+                    dp.ADC,
+                    dp.TIM1,
+                    dp.SPI1,
+                    gpioa.a0,
+                    gpioa.a9,
+                    gpioa.a10,
+                    gpiob.b3,
+                    gpiob.b4,
+                    gpiob.b5,
+                    gpiob.b9,
+                    gpiob.b13,
+                    gpiob.b14,
+                    &mut rcc,
+                    cs,
+                )
+            });
+            board.buck.off();
+            watchdog::feed(&iwdg);
+            if board.sd.card_present() {
+                match board.sd.init() {
+                    Ok(kind) => rprintln!("SD card ready: {:?}", kind),
+                    Err(e) => rprintln!("SD card init failed: {:?}", e),
+                }
+            } else {
+                rprintln!("No SD card inserted");
+            }
+            let t = board.senses.read();
+            rprintln!(
+                "Board: vin={} mV vbat={} mV ibat={} mA",
+                t.vin_mv,
+                t.vbat_mv,
+                t.ibat_ma
+            );
+            board
+        };
+        #[cfg(not(feature = "board"))]
+        let board = ();
+
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
             "Starting nano-mesh (address={}, freq={} Hz)...",
@@ -176,10 +234,10 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg })
+        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board })
     }
 
-    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg], priority = 1)]
+    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
@@ -188,6 +246,8 @@ mod app {
         let flash = cx.local.flash;
         let ota = cx.local.ota;
         let iwdg = cx.local.iwdg;
+        #[cfg(feature = "board")]
+        let board = cx.local.board;
 
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
@@ -281,16 +341,32 @@ mod app {
                 }
             }
 
-            // Send a heartbeat (broadcast)
+            // Send a heartbeat (broadcast).  With the `board` feature the
+            // heartbeat carries the sensor readings instead of "hello".
             if Mono::now() >= next_tx {
-                let message = b"hello";
+                #[cfg(feature = "board")]
+                let mut msg_buf = [0u8; 32];
+                #[cfg(feature = "board")]
+                let message: &[u8] = {
+                    let t = board.senses.read();
+                    rprintln!(
+                        "Board: vin={} mV vbat={} mV ibat={} mA duty={}",
+                        t.vin_mv,
+                        t.vbat_mv,
+                        t.ibat_ma,
+                        board.buck.duty_permille()
+                    );
+                    t.format_into(&mut msg_buf).as_bytes()
+                };
+                #[cfg(not(feature = "board"))]
+                let message: &[u8] = b"hello";
                 const LEN: usize = 32;
                 let mut send_header: [u8; LEN] = *b"Out:                            ";
                 
                 let offset = 5;
                 let len = message.len().min(LEN-offset);
 
-                send_header[offset..offset+len].copy_from_slice(message);
+                send_header[offset..offset+len].copy_from_slice(&message[..len]);
 
                 tx_count += 1;
                 match mesh.broadcast(core::str::from_utf8(message).unwrap_or("UTF8 Message Error").as_bytes(), BROADCAST_LIFETIME) {

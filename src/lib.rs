@@ -10,6 +10,8 @@ macro_rules! debug_println {
     };
 }
 
+#[cfg(feature = "board")]
+pub mod board;
 pub mod boot_state;
 pub mod config;
 pub mod io;

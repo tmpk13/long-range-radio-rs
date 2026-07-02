@@ -14,6 +14,9 @@ path = "./src/bin/main.rs"
 [features]
 default = []
 debug = []
+# MPPT buck NiMH charger board: voltage/current sensing, buck PWM, SD card.
+# Raises the system clock from 4 MHz to 16 MHz for PWM resolution.
+board = []
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
