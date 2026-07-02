@@ -87,6 +87,8 @@ mod app {
             target_addr: u8,
             fw_size: u32,
             fw_version: u16,
+            /// CRC32 of the original firmware as reported by the host.
+            expected_crc: u32,
             bytes_received: u32,
             page_offset: u16,
             current_page: u16,
@@ -340,7 +342,7 @@ mod app {
                     uart_send(uart, tx.as_bytes());
                     return;
                 }
-                if payload.len() < 7 {
+                if payload.len() < 11 {
                     tx.build(resp::NAK, &[err::BAD_FRAME]);
                     uart_send(uart, tx.as_bytes());
                     return;
@@ -351,6 +353,9 @@ mod app {
                     payload[1], payload[2], payload[3], payload[4],
                 ]);
                 let fw_version = u16::from_le_bytes([payload[5], payload[6]]);
+                let expected_crc = u32::from_le_bytes([
+                    payload[7], payload[8], payload[9], payload[10],
+                ]);
 
                 if fw_size == 0 || fw_size > super::MAX_FW_SIZE {
                     tx.build(resp::NAK, &[err::BAD_SIZE]);
@@ -361,14 +366,15 @@ mod app {
                 super::page_buf_mut().fill(0xFF);
 
                 rprintln!(
-                    "OTA start: target={} size={} ver={}",
-                    target_addr, fw_size, fw_version
+                    "OTA start: target={} size={} ver={} crc=0x{:08X}",
+                    target_addr, fw_size, fw_version, expected_crc
                 );
 
                 *state = BsState::ReceivingFw {
                     target_addr,
                     fw_size,
                     fw_version,
+                    expected_crc,
                     bytes_received: 0,
                     page_offset: 0,
                     current_page: 0,
@@ -451,20 +457,28 @@ mod app {
             }
 
             cmd::BEGIN_TRANSFER => {
-                let (target_addr, fw_size, fw_version, bytes_received) = match state {
-                    BsState::ReceivingFw {
-                        target_addr,
-                        fw_size,
-                        fw_version,
-                        bytes_received,
-                        ..
-                    } => (*target_addr, *fw_size, *fw_version, *bytes_received),
-                    _ => {
-                        tx.build(resp::NAK, &[err::INVALID_STATE]);
-                        uart_send(uart, tx.as_bytes());
-                        return;
-                    }
-                };
+                let (target_addr, fw_size, fw_version, expected_crc, bytes_received) =
+                    match state {
+                        BsState::ReceivingFw {
+                            target_addr,
+                            fw_size,
+                            fw_version,
+                            expected_crc,
+                            bytes_received,
+                            ..
+                        } => (
+                            *target_addr,
+                            *fw_size,
+                            *fw_version,
+                            *expected_crc,
+                            *bytes_received,
+                        ),
+                        _ => {
+                            tx.build(resp::NAK, &[err::INVALID_STATE]);
+                            uart_send(uart, tx.as_bytes());
+                            return;
+                        }
+                    };
 
                 if bytes_received < fw_size {
                     tx.build(resp::NAK, &[err::NO_FW_DATA]);
@@ -472,7 +486,20 @@ mod app {
                     return;
                 }
 
+                // Verify the received DFU image against the host's CRC32 before
+                // committing to the (slow) mesh transfer.
                 let crc32 = OtaSender::compute_dfu_crc32(fw_size);
+                if crc32 != expected_crc {
+                    rprintln!(
+                        "OTA CRC mismatch: host=0x{:08X} dfu=0x{:08X}",
+                        expected_crc, crc32
+                    );
+                    *state = BsState::Idle;
+                    tx.build(resp::NAK, &[err::CRC_MISMATCH]);
+                    uart_send(uart, tx.as_bytes());
+                    return;
+                }
+
                 rprintln!(
                     "Starting mesh OTA: target={} size={} crc=0x{:08X} ver={}",
                     target_addr, fw_size, crc32, fw_version

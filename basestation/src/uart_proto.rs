@@ -55,6 +55,7 @@ pub mod err {
     pub const FLASH_ERROR: u8 = 0x03;
     pub const BAD_FRAME: u8 = 0x04;
     pub const NO_FW_DATA: u8 = 0x05;
+    pub const CRC_MISMATCH: u8 = 0x06;
 }
 
 // ── CRC-8 ──────────────────────────────────────────────────────────────────

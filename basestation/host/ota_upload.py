@@ -18,6 +18,7 @@ import argparse
 import struct
 import sys
 import time
+import zlib
 
 from tqdm import tqdm
 
@@ -39,11 +40,15 @@ UART_CHUNK_SIZE = 128
 def upload_firmware(bs: Basestation, fw_data: bytes, target: int, version: int):
     """Upload firmware to basestation and initiate mesh OTA."""
     fw_size = len(fw_data)
-    print(f"Firmware: {fw_size} bytes, target node: {target}, version: {version}")
+    fw_crc32 = zlib.crc32(fw_data) & 0xFFFFFFFF
+    print(
+        f"Firmware: {fw_size} bytes, target node: {target}, "
+        f"version: {version}, crc32: 0x{fw_crc32:08X}"
+    )
 
     # Phase 1: Send START_OTA
     print("Sending OTA start...")
-    bs.start_ota(target, fw_size, version)
+    bs.start_ota(target, fw_size, version, fw_crc32)
 
     # Phase 2: Upload firmware data to basestation
     print("Uploading firmware to basestation...")

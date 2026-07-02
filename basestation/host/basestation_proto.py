@@ -51,6 +51,7 @@ ERR_BAD_SIZE = 0x02
 ERR_FLASH_ERROR = 0x03
 ERR_BAD_FRAME = 0x04
 ERR_NO_FW_DATA = 0x05
+ERR_CRC_MISMATCH = 0x06
 
 
 # ── CRC-8 ───────────────────────────────────────────────────────────────────
@@ -159,9 +160,17 @@ class Basestation:
                 f"Unexpected response: cmd=0x{frame.cmd:02X}"
             )
 
-    def start_ota(self, target_addr: int, fw_size: int, fw_version: int):
-        """Send START_OTA command."""
-        payload = struct.pack("<BIH", target_addr, fw_size, fw_version)
+    def start_ota(
+        self, target_addr: int, fw_size: int, fw_version: int, fw_crc32: int
+    ):
+        """Send START_OTA command.
+
+        fw_crc32 is the CRC32 (zlib/ISO-HDLC) of the original firmware; the
+        basestation verifies its received copy against it before transferring.
+        """
+        payload = struct.pack(
+            "<BIHI", target_addr, fw_size, fw_version, fw_crc32
+        )
         self._send(CMD_START_OTA, payload)
         self._expect_ack()
 
