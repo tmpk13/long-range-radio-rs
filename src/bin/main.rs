@@ -214,9 +214,11 @@ mod app {
             false
         };
 
-        // ---- Charger board: senses, buck PWM, SD card ------------------------
+        // ---- Charger board: senses, buck PWM, SD card, LEDs ------------------
         #[cfg(feature = "board")]
         let board = {
+            use stm32wlxx_hal::gpio::PortC;
+            let gpioc = PortC::split(dp.GPIOC, &mut rcc);
             let mut board = cortex_m::interrupt::free(|cs| {
                 sx1262_mesh_rs::board::Board::new(
                     dp.ADC,
@@ -231,6 +233,8 @@ mod app {
                     gpiob.b9,
                     gpiob.b13,
                     gpiob.b14,
+                    gpioc.c0,
+                    gpioc.c1,
                     &mut rcc,
                     cs,
                 )
@@ -348,6 +352,10 @@ mod app {
                     next_display_retry = Mono::now() + display_retry_interval;
                 }
             }
+            // Pulse the radio activity LEDs (TX on PC0, RX on PC1).
+            #[cfg(feature = "board")]
+            board.leds.update(sx1262_mesh_rs::platform::millis());
+
             // Charger control loop: sample, then perturb the buck duty.
             #[cfg(feature = "board")]
             if Mono::now() >= next_mppt {

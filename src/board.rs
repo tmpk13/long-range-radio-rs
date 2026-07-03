@@ -13,6 +13,8 @@
 //! | PB5  | SPI1_MOSI  | SPI-COTI    | SD card CMD                               |
 //! | PA0  | GPIO out   | SPI-CS      | SD card chip select (CD/DAT3)             |
 //! | PB9  | GPIO in    | GPIO-9      | SD card detect switch (low = inserted)    |
+//! | PC0  | GPIO out   | LED1        | radio TX activity LED (active high)       |
+//! | PC1  | GPIO out   | LED2        | radio RX activity LED (active high)       |
 //!
 //! The LM5109B LI input is grounded: the buck is non-synchronous with an
 //! SS56 freewheel diode, so only the high-side PWM is driven.
@@ -275,6 +277,77 @@ impl Buck {
     /// Force the switch off (duty 0).
     pub fn off(&mut self) {
         self.set_duty_permille(0);
+    }
+}
+
+/// Radio activity flags, set by the radio driver from wherever a packet
+/// is actually sent or received, consumed by [`Leds::update`].
+pub mod activity {
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    static TX: AtomicBool = AtomicBool::new(false);
+    static RX: AtomicBool = AtomicBool::new(false);
+
+    pub fn note_tx() {
+        TX.store(true, Ordering::Relaxed);
+    }
+    pub fn note_rx() {
+        RX.store(true, Ordering::Relaxed);
+    }
+    pub(super) fn take_tx() -> bool {
+        TX.swap(false, Ordering::Relaxed)
+    }
+    pub(super) fn take_rx() -> bool {
+        RX.swap(false, Ordering::Relaxed)
+    }
+}
+
+/// LED pulse length.  Long enough to see, short enough that back-to-back
+/// packets read as flicker rather than a solid light.
+const LED_PULSE_MS: u32 = 30;
+
+/// Radio activity LEDs: LED1 (PC0) pulses on transmit, LED2 (PC1) on
+/// receive.  Both drive high through 10k into the LED (active high).
+pub struct Leds {
+    tx: Output<pins::C0>,
+    rx: Output<pins::C1>,
+    tx_on_at: u32,
+    tx_lit: bool,
+    rx_on_at: u32,
+    rx_lit: bool,
+}
+
+impl Leds {
+    pub fn new(c0: pins::C0, c1: pins::C1, cs: &CriticalSection) -> Self {
+        Self {
+            tx: Output::default(c0, cs),
+            rx: Output::default(c1, cs),
+            tx_on_at: 0,
+            tx_lit: false,
+            rx_on_at: 0,
+            rx_lit: false,
+        }
+    }
+
+    /// Start pending pulses and retire expired ones.  Call every main
+    /// loop iteration; an event while lit extends the pulse.
+    pub fn update(&mut self, now_ms: u32) {
+        if activity::take_tx() {
+            self.tx.set_level_high();
+            self.tx_on_at = now_ms;
+            self.tx_lit = true;
+        } else if self.tx_lit && now_ms.wrapping_sub(self.tx_on_at) >= LED_PULSE_MS {
+            self.tx.set_level_low();
+            self.tx_lit = false;
+        }
+        if activity::take_rx() {
+            self.rx.set_level_high();
+            self.rx_on_at = now_ms;
+            self.rx_lit = true;
+        } else if self.rx_lit && now_ms.wrapping_sub(self.rx_on_at) >= LED_PULSE_MS {
+            self.rx.set_level_low();
+            self.rx_lit = false;
+        }
     }
 }
 
@@ -694,6 +767,7 @@ pub struct Board {
     pub buck: Buck,
     pub sd: SdCard,
     pub mppt: Mppt,
+    pub leds: Leds,
 }
 
 impl Board {
@@ -711,6 +785,8 @@ impl Board {
         b9: pins::B9,
         b13: pins::B13,
         b14: pins::B14,
+        c0: pins::C0,
+        c1: pins::C1,
         rcc: &mut pac::RCC,
         cs: &CriticalSection,
     ) -> Self {
@@ -719,6 +795,7 @@ impl Board {
             buck: Buck::new(tim1, a9, rcc, cs),
             sd: SdCard::new(spi1, b3, b4, b5, a0, b9, rcc, cs),
             mppt: Mppt::new(),
+            leds: Leds::new(c0, c1, cs),
         }
     }
 

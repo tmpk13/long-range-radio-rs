@@ -246,6 +246,9 @@ impl PacketRadio for Sx1262Driver {
         // rssi_pkt() returns Ratio<i16>; .to_integer() gives dBm
         let rssi = pkt_status.rssi_pkt().to_integer();
 
+        #[cfg(feature = "board")]
+        crate::board::activity::note_rx();
+
         // Stay in RX — continuous mode persists
         Ok(Some((len, rssi)))
     }
@@ -284,6 +287,9 @@ impl PacketRadio for Sx1262Driver {
             .set_tx(Timeout::from_millis_sat(TX_CHIP_TIMEOUT_MS as u32))
             .map_err(|_| Sx1262Error::Radio)?;
         self.wait_on_busy();
+
+        #[cfg(feature = "board")]
+        crate::board::activity::note_tx();
 
         if cfg!(feature = "debug") && let Ok(status) = self.radio.status() {
                 debug_println!("  send: TX started, chip status = {:?}", status);
