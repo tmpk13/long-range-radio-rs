@@ -20,12 +20,39 @@
 use crate::platform::SYSCLK_HZ;
 use cortex_m::interrupt::CriticalSection;
 use stm32wlxx_hal::{
-    adc::{self, Adc},
+    adc::{self, Adc, OversampleRatio, OversampleShift},
     embedded_hal::blocking::delay::DelayUs,
     gpio::{pins, Analog, Input, Output, OutputArgs, PinState, Pull},
     pac,
     spi::{BaudRate, Spi, Transfer, Write, MODE_0},
 };
+
+/// Charger tuning constants.
+pub mod charge {
+    /// Battery voltage ceiling (mV): 3S NiMH at ~1.4 V/cell, matching the
+    /// board's "3V6-4V2" output rating.  Above this the charger limits.
+    pub const VBAT_MAX_MV: u32 = 4200;
+    /// Charge current ceiling (mA) — 0.5C for a 2000 mAh pack.
+    pub const IBAT_MAX_MA: u32 = 1000;
+    /// The non-synchronous buck needs the input above the battery by at
+    /// least this much (dropout + SS56 diode) before charging is useful.
+    pub const VIN_MARGIN_MV: u32 = 1000;
+    /// Extra input headroom required before leaving [`ChargeState::Idle`],
+    /// so a marginal panel does not flap between states.
+    pub const VIN_HYST_MV: u32 = 500;
+    /// Perturb & observe period (ms).
+    pub const MPPT_PERIOD_MS: u32 = 200;
+    /// P&O duty perturbation (permille) — about two TIM1 counts.
+    pub const DUTY_STEP_PM: u32 = 13;
+    /// Backoff step while a voltage/current limit is active (permille).
+    pub const LIMIT_STEP_PM: u32 = 26;
+    /// Power changes below this (mW) are treated as noise and do not
+    /// reverse the perturb direction.
+    pub const POWER_HYST_MW: u32 = 40;
+    /// ADC sweeps averaged per MPPT step to tame shunt quantization
+    /// (1 LSB across the 50 mOhm shunt is ~16 mA).
+    pub const AVG_SAMPLES: u32 = 4;
+}
 
 /// Busy-wait delay from CPU cycles (SysTick is owned by the RTIC monotonic).
 struct CycleDelay;
@@ -59,32 +86,59 @@ pub struct Telemetry {
     pub ibat_ma: u32,
 }
 
+/// Format `args` into `buf`, returning the written prefix (truncation-safe).
+fn fmt_into<'a>(buf: &'a mut [u8; 32], args: core::fmt::Arguments) -> &'a str {
+    struct W<'b> {
+        buf: &'b mut [u8],
+        len: usize,
+    }
+    impl core::fmt::Write for W<'_> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let bytes = s.as_bytes();
+            if self.len + bytes.len() > self.buf.len() {
+                return Err(core::fmt::Error);
+            }
+            self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
+            self.len += bytes.len();
+            Ok(())
+        }
+    }
+    let mut w = W { buf, len: 0 };
+    let _ = core::fmt::write(&mut w, args);
+    let len = w.len;
+    core::str::from_utf8(&buf[..len]).unwrap_or("")
+}
+
 impl Telemetry {
     /// Format as `V=<vin> B=<vbat> I=<ibat>` into `buf`, returning the
     /// written prefix.  Fits a 32-byte mesh payload.
     pub fn format_into<'a>(&self, buf: &'a mut [u8; 32]) -> &'a str {
-        struct W<'b> {
-            buf: &'b mut [u8],
-            len: usize,
-        }
-        impl core::fmt::Write for W<'_> {
-            fn write_str(&mut self, s: &str) -> core::fmt::Result {
-                let bytes = s.as_bytes();
-                if self.len + bytes.len() > self.buf.len() {
-                    return Err(core::fmt::Error);
-                }
-                self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
-                self.len += bytes.len();
-                Ok(())
-            }
-        }
-        let mut w = W { buf, len: 0 };
-        let _ = core::fmt::write(
-            &mut w,
+        fmt_into(
+            buf,
             format_args!("V={} B={} I={}", self.vin_mv, self.vbat_mv, self.ibat_ma),
-        );
-        let len = w.len;
-        core::str::from_utf8(&buf[..len]).unwrap_or("")
+        )
+    }
+
+    /// Like [`format_into`](Self::format_into) with the charger status
+    /// appended: `... D=<duty permille> <state letter>`.
+    pub fn format_status<'a>(
+        &self,
+        duty_pm: u32,
+        state: ChargeState,
+        buf: &'a mut [u8; 32],
+    ) -> &'a str {
+        let s = match state {
+            ChargeState::Idle => 'i',
+            ChargeState::Tracking => 't',
+            ChargeState::Limiting => 'l',
+        };
+        fmt_into(
+            buf,
+            format_args!(
+                "V={} B={} I={} D={} {}",
+                self.vin_mv, self.vbat_mv, self.ibat_ma, duty_pm, s
+            ),
+        )
     }
 }
 
@@ -109,6 +163,9 @@ impl Senses {
         adc.calibrate(&mut CycleDelay);
         // 10k source impedance on the dividers needs the longest sample time.
         adc.set_max_sample_time();
+        // 16x hardware oversampling (result stays 12-bit) knocks a couple
+        // of bits of noise off the shunt reading.
+        adc.enable_oversampling(OversampleRatio::Mul16, OversampleShift::Shift4);
         adc.enable();
         adc.enable_vref();
         Self {
@@ -116,6 +173,23 @@ impl Senses {
             vin: Analog::new(b14, cs),
             vout: Analog::new(b13, cs),
             ishunt: Analog::new(a10, cs),
+        }
+    }
+
+    /// Average `n` sweeps of all channels.
+    pub fn read_avg(&mut self, n: u32) -> Telemetry {
+        let n = n.max(1);
+        let mut acc = Telemetry::default();
+        for _ in 0..n {
+            let t = self.read();
+            acc.vin_mv += t.vin_mv;
+            acc.vbat_mv += t.vbat_mv;
+            acc.ibat_ma += t.ibat_ma;
+        }
+        Telemetry {
+            vin_mv: acc.vin_mv / n,
+            vbat_mv: acc.vbat_mv / n,
+            ibat_ma: acc.ibat_ma / n,
         }
     }
 
@@ -201,6 +275,122 @@ impl Buck {
     /// Force the switch off (duty 0).
     pub fn off(&mut self) {
         self.set_duty_permille(0);
+    }
+}
+
+/// Charger state, one letter in the telemetry broadcast.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChargeState {
+    /// Input too low to charge; PWM off, waiting for sun.
+    Idle,
+    /// Perturb & observe hill climbing on output power.
+    Tracking,
+    /// Battery voltage or current ceiling reached; duty backing off.
+    Limiting,
+}
+
+/// Perturb & observe MPPT with output voltage/current limiting.
+///
+/// The board senses the battery side of the buck, so the controller
+/// climbs on *output* power (`vbat * ibat`).  Converter efficiency is
+/// flat across the operating range, so the output maximum coincides
+/// with the panel's maximum power point.
+pub struct Mppt {
+    state: ChargeState,
+    duty_pm: u32,
+    dir_up: bool,
+    last_power_mw: u32,
+}
+
+impl Default for Mppt {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Mppt {
+    pub const fn new() -> Self {
+        Self {
+            state: ChargeState::Idle,
+            duty_pm: 0,
+            dir_up: true,
+            last_power_mw: 0,
+        }
+    }
+
+    pub fn state(&self) -> ChargeState {
+        self.state
+    }
+
+    /// Commanded duty (permille).  Tracked here because the timer
+    /// quantizes to ~6 permille and would round-trip lossily.
+    pub fn duty_permille(&self) -> u32 {
+        self.duty_pm
+    }
+
+    fn apply(&mut self, buck: &mut Buck, duty_pm: u32) {
+        self.duty_pm = duty_pm.min(Buck::MAX_DUTY_PERMILLE);
+        buck.set_duty_permille(self.duty_pm);
+    }
+
+    /// Run one controller step.  Call every [`charge::MPPT_PERIOD_MS`]
+    /// with a fresh (averaged) telemetry reading.
+    pub fn step(&mut self, t: &Telemetry, buck: &mut Buck) {
+        // Not enough input to buck into the battery: park.  Hysteresis on
+        // the way out so a marginal panel does not flap.
+        let vin_floor = t.vbat_mv + charge::VIN_MARGIN_MV;
+        if t.vin_mv < vin_floor {
+            self.state = ChargeState::Idle;
+            self.dir_up = true;
+            self.last_power_mw = 0;
+            self.apply(buck, 0);
+            return;
+        }
+        if self.state == ChargeState::Idle {
+            if t.vin_mv < vin_floor + charge::VIN_HYST_MV {
+                return;
+            }
+            // Sun is back: soft-start from the bottom.
+            self.state = ChargeState::Tracking;
+            self.dir_up = true;
+            self.last_power_mw = 0;
+            self.apply(buck, charge::DUTY_STEP_PM);
+            return;
+        }
+
+        // Battery protection overrides tracking.
+        if t.vbat_mv > charge::VBAT_MAX_MV || t.ibat_ma > charge::IBAT_MAX_MA {
+            self.state = ChargeState::Limiting;
+            // Resume tracking downhill so the limit is not hit again
+            // on the very next perturbation.
+            self.dir_up = false;
+            self.last_power_mw = 0;
+            let duty = self.duty_pm.saturating_sub(charge::LIMIT_STEP_PM);
+            self.apply(buck, duty);
+            return;
+        }
+
+        // Perturb & observe: reverse direction when power dropped.
+        self.state = ChargeState::Tracking;
+        let power_mw = t.vbat_mv * t.ibat_ma / 1000;
+        if power_mw + charge::POWER_HYST_MW < self.last_power_mw {
+            self.dir_up = !self.dir_up;
+        }
+        self.last_power_mw = power_mw;
+
+        let duty = if self.dir_up {
+            self.duty_pm + charge::DUTY_STEP_PM
+        } else {
+            self.duty_pm.saturating_sub(charge::DUTY_STEP_PM)
+        };
+        // Bounce off the rails instead of sticking to them.
+        if duty >= Buck::MAX_DUTY_PERMILLE {
+            self.dir_up = false;
+        }
+        if duty == 0 {
+            self.dir_up = true;
+        }
+        self.apply(buck, duty);
     }
 }
 
@@ -503,6 +693,7 @@ pub struct Board {
     pub senses: Senses,
     pub buck: Buck,
     pub sd: SdCard,
+    pub mppt: Mppt,
 }
 
 impl Board {
@@ -527,6 +718,15 @@ impl Board {
             senses: Senses::new(adc, b14, b13, a10, rcc, cs),
             buck: Buck::new(tim1, a9, rcc, cs),
             sd: SdCard::new(spi1, b3, b4, b5, a0, b9, rcc, cs),
+            mppt: Mppt::new(),
         }
+    }
+
+    /// One charger control step: averaged sensor sweep, then MPPT/limit
+    /// update of the buck duty.  Returns the reading for logging.
+    pub fn mppt_step(&mut self) -> Telemetry {
+        let t = self.senses.read_avg(charge::AVG_SAMPLES);
+        self.mppt.step(&t, &mut self.buck);
+        t
     }
 }

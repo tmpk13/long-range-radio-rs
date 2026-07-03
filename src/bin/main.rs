@@ -264,6 +264,10 @@ mod app {
         let display_retry_interval = 10_000_u32.millis();
         let mut next_display_retry = Mono::now() + display_retry_interval;
 
+        // MPPT charger control period
+        #[cfg(feature = "board")]
+        let mut next_mppt = Mono::now();
+
         loop {
             // Retry display connection if not detected.
             // Skip all I2C during OTA — a stuck bus could trigger a watchdog
@@ -281,6 +285,22 @@ mod app {
                     next_display_retry = Mono::now() + display_retry_interval;
                 }
             }
+            // Charger control loop: sample, then perturb the buck duty.
+            #[cfg(feature = "board")]
+            if Mono::now() >= next_mppt {
+                let t = board.mppt_step();
+                debug_println!(
+                    "MPPT: vin={} vbat={} ibat={} duty={} {:?}",
+                    t.vin_mv,
+                    t.vbat_mv,
+                    t.ibat_ma,
+                    board.mppt.duty_permille(),
+                    board.mppt.state()
+                );
+                next_mppt = Mono::now()
+                    + sx1262_mesh_rs::board::charge::MPPT_PERIOD_MS.millis();
+            }
+
             // Drive the mesh protocol (receive, forward, transmit)
             mesh.update(io, sx1262_mesh_rs::platform::millis());
 
@@ -348,15 +368,18 @@ mod app {
                 let mut msg_buf = [0u8; 32];
                 #[cfg(feature = "board")]
                 let message: &[u8] = {
-                    let t = board.senses.read();
+                    let t = board.senses.read_avg(4);
+                    let duty = board.mppt.duty_permille();
+                    let state = board.mppt.state();
                     rprintln!(
-                        "Board: vin={} mV vbat={} mV ibat={} mA duty={}",
+                        "Board: vin={} mV vbat={} mV ibat={} mA duty={} {:?}",
                         t.vin_mv,
                         t.vbat_mv,
                         t.ibat_ma,
-                        board.buck.duty_permille()
+                        duty,
+                        state
                     );
-                    t.format_into(&mut msg_buf).as_bytes()
+                    t.format_status(duty, state, &mut msg_buf).as_bytes()
                 };
                 #[cfg(not(feature = "board"))]
                 let message: &[u8] = b"hello";
