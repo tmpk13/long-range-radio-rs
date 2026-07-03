@@ -723,3 +723,13 @@ embedded-hal version support against this HAL (eh 0.2 only), and the
 total in-repo code is ~450 lines.
 Blocking sweep worst case ~0.5 s (BME heater + soil timeout), so the
 sweep is skipped during OTA transfers.
+
+## Radio activity LEDs (board feature)
+
+LED1 (PC0) pulses on radio TX, LED2 (PC1) on RX; both active high
+(pin -> LED -> 10k -> GND per schematic). Hooked at the Sx1262Driver
+level (note_tx after set_tx, note_rx on packet read) rather than in
+the app loop, so mesh-internal traffic and future packet forwarding
+blink too. The driver sets lock-free atomic flags in board::activity;
+Leds::update in the main loop starts/retires 30 ms pulses, avoiding
+any GPIO coupling inside the radio driver.
