@@ -611,6 +611,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-io",
  "embedded-nano-mesh",
+ "nb 1.1.0",
  "panic-halt",
  "rtic",
  "rtic-monotonics",

@@ -21,6 +21,10 @@ pub mod ota_protocol;
 pub mod ota_sender;
 pub mod platform;
 pub mod radio;
+#[cfg(feature = "rs422")]
+pub mod rs422;
+#[cfg(feature = "sensor")]
+pub mod sensors;
 pub mod watchdog;
 
 pub use embedded_nano_mesh::{LifeTimeType, SendError};

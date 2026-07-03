@@ -84,9 +84,27 @@ mod app {
     #[cfg(not(feature = "board"))]
     type BoardRes = ();
 
+    /// The I2C2 peripheral driving the display (and sensor suite).
+    type I2cPeriph = I2c2<(pins::B15, pins::A15)>;
+    /// With `sensor`, the bus is split between display and sensors.
+    #[cfg(feature = "sensor")]
+    type I2cBus = sx1262_mesh_rs::sensors::SharedI2c<I2cPeriph>;
+    #[cfg(not(feature = "sensor"))]
+    type I2cBus = I2cPeriph;
+
+    #[cfg(feature = "sensor")]
+    type SensorsRes = sx1262_mesh_rs::sensors::Sensors<I2cBus>;
+    #[cfg(not(feature = "sensor"))]
+    type SensorsRes = ();
+
+    #[cfg(feature = "rs422")]
+    type Rs422Res = sx1262_mesh_rs::rs422::Rs422;
+    #[cfg(not(feature = "rs422"))]
+    type Rs422Res = ();
+
     type Radio = Sx1262Driver;
     type Display = Ssd1306<
-        I2CInterface<I2c2<(pins::B15, pins::A15)>>,
+        I2CInterface<I2cBus>,
         DisplaySize128x64,
         BufferedGraphicsMode<DisplaySize128x64>,
     >;
@@ -104,6 +122,8 @@ mod app {
         ota: OtaReceiver,
         iwdg: IWDG,
         board: BoardRes,
+        sensors: SensorsRes,
+        rs422: Rs422Res,
     }
 
     #[init]
@@ -159,6 +179,23 @@ mod app {
         let i2c = cortex_m::interrupt::free(|cs| {
             I2c2::new(dp.I2C2, (gpiob.b15, gpioa.a15), 100_000, &mut rcc, true, cs)
         });
+
+        // With `sensor`, split the bus between the display and the
+        // sensor suite; everything runs at the same task priority.
+        #[cfg(feature = "sensor")]
+        let (i2c, sensors) = {
+            use core::cell::RefCell;
+            let bus: &'static RefCell<I2cPeriph> =
+                cortex_m::singleton!(: RefCell<I2cPeriph> = RefCell::new(i2c)).unwrap();
+            let sensors = sx1262_mesh_rs::sensors::Sensors::probe(
+                sx1262_mesh_rs::sensors::SharedI2c::new(bus),
+            );
+            rprintln!("I2C sensors found: {:?}", sensors.found);
+            (sx1262_mesh_rs::sensors::SharedI2c::new(bus), sensors)
+        };
+        #[cfg(not(feature = "sensor"))]
+        let sensors = ();
+
         let mut display = Ssd1306::new(
             I2CDisplayInterface::new(i2c),
             DisplaySize128x64,
@@ -220,6 +257,21 @@ mod app {
         #[cfg(not(feature = "board"))]
         let board = ();
 
+        // ---- RS-422 field bus (MAX3430 on USART2) ----------------------------
+        #[cfg(feature = "rs422")]
+        let rs422 = {
+            let link = cortex_m::interrupt::free(|cs| {
+                sx1262_mesh_rs::rs422::Rs422::new(dp.USART2, gpioa.a2, gpioa.a3, &mut rcc, cs)
+            });
+            rprintln!(
+                "RS-422 link on USART2 (PA2 TX / PA3 RX) at {} baud",
+                sx1262_mesh_rs::rs422::BAUD
+            );
+            link
+        };
+        #[cfg(not(feature = "rs422"))]
+        let rs422 = ();
+
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
             "Starting nano-mesh (address={}, freq={} Hz)...",
@@ -234,10 +286,10 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board })
+        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board, sensors, rs422 })
     }
 
-    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board], priority = 1)]
+    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board, sensors, rs422], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
@@ -248,6 +300,10 @@ mod app {
         let iwdg = cx.local.iwdg;
         #[cfg(feature = "board")]
         let board = cx.local.board;
+        #[cfg(feature = "sensor")]
+        let sensors = cx.local.sensors;
+        #[cfg(feature = "rs422")]
+        let rs422 = cx.local.rs422;
 
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
@@ -267,6 +323,13 @@ mod app {
         // MPPT charger control period
         #[cfg(feature = "board")]
         let mut next_mppt = Mono::now();
+
+        // Environmental sensor sweep every 30 s (first one shortly after
+        // boot so the SCD41's 5 s first measurement is ready).
+        #[cfg(any(feature = "sensor", feature = "rs422"))]
+        let sensor_interval = 30_000_u32.millis();
+        #[cfg(any(feature = "sensor", feature = "rs422"))]
+        let mut next_sensor = Mono::now() + 6_000_u32.millis();
 
         loop {
             // Retry display connection if not detected.
@@ -299,6 +362,60 @@ mod app {
                 );
                 next_mppt = Mono::now()
                     + sx1262_mesh_rs::board::charge::MPPT_PERIOD_MS.millis();
+            }
+
+            // Environmental sensor sweep.  Blocking (worst ~0.5 s), so
+            // skipped while an OTA transfer is in flight.
+            #[cfg(any(feature = "sensor", feature = "rs422"))]
+            if !ota_active && Mono::now() >= next_sensor {
+                #[cfg(feature = "sensor")]
+                {
+                    let r = sensors.read();
+                    if let Some(b) = r.bme {
+                        rprintln!(
+                            "BME680: T={}.{:02} C P={} Pa RH={}.{:02} % gas={} ohm",
+                            b.temp_c_x100 / 100,
+                            (b.temp_c_x100 % 100).unsigned_abs(),
+                            b.press_pa,
+                            b.hum_pct_x100 / 100,
+                            b.hum_pct_x100 % 100,
+                            b.gas_ohm
+                        );
+                    }
+                    if let Some(c) = r.co2 {
+                        rprintln!(
+                            "SCD41: CO2={} ppm T={}.{:02} C RH={}.{:02} %",
+                            c.co2_ppm,
+                            c.temp_c_x100 / 100,
+                            (c.temp_c_x100 % 100).unsigned_abs(),
+                            c.hum_pct_x100 / 100,
+                            c.hum_pct_x100 % 100
+                        );
+                    }
+                    if let Some(a) = r.accel {
+                        rprintln!("ADXL: x={} y={} z={} mg", a.x_mg, a.y_mg, a.z_mg);
+                    }
+                    if let Some(l) = r.lightning {
+                        rprintln!(
+                            "AS3935: event src={:#04x} distance={} km",
+                            l.int_src,
+                            l.distance_km
+                        );
+                    }
+                }
+                #[cfg(feature = "rs422")]
+                match rs422.read_soil() {
+                    Ok(soil) => rprintln!(
+                        "Soil: {}.{} % {}.{} C",
+                        soil.moisture_pct_x10 / 10,
+                        soil.moisture_pct_x10 % 10,
+                        soil.temp_c_x10 / 10,
+                        (soil.temp_c_x10 % 10).unsigned_abs()
+                    ),
+                    Err(e) => debug_println!("Soil probe: {:?}", e),
+                }
+                watchdog::feed(iwdg);
+                next_sensor = Mono::now() + sensor_interval;
             }
 
             // Drive the mesh protocol (receive, forward, transmit)
