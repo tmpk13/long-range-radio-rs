@@ -102,6 +102,11 @@ mod app {
     #[cfg(not(feature = "rs422"))]
     type Rs422Res = ();
 
+    #[cfg(feature = "gps-radio-log")]
+    type GpsLogRes = sx1262_mesh_rs::gpslog::GpsRadioLog;
+    #[cfg(not(feature = "gps-radio-log"))]
+    type GpsLogRes = ();
+
     type Radio = Sx1262Driver;
     type Display = Ssd1306<
         I2CInterface<I2cBus>,
@@ -124,6 +129,7 @@ mod app {
         board: BoardRes,
         sensors: SensorsRes,
         rs422: Rs422Res,
+        gpslog: GpsLogRes,
     }
 
     #[init]
@@ -276,6 +282,23 @@ mod app {
         #[cfg(not(feature = "rs422"))]
         let rs422 = ();
 
+        // ---- GPS + radio link logger (NMEA on USART1) ------------------------
+        // The GPS stays powered and active; SD logging is brought up
+        // lazily inside poll() so a late-inserted card still works.
+        #[cfg(feature = "gps-radio-log")]
+        let gpslog = {
+            let g = cortex_m::interrupt::free(|cs| {
+                sx1262_mesh_rs::gpslog::GpsRadioLog::new(dp.USART1, gpiob.b7, &mut rcc, cs)
+            });
+            rprintln!(
+                "GPS on USART1 (PB7 RX) at {} baud, logging radio + GPS to SD",
+                sx1262_mesh_rs::gpslog::BAUD
+            );
+            g
+        };
+        #[cfg(not(feature = "gps-radio-log"))]
+        let gpslog = ();
+
         // ---- Mesh networking -------------------------------------------------
         debug_println!(
             "Starting nano-mesh (address={}, freq={} Hz)...",
@@ -290,10 +313,10 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board, sensors, rs422 })
+        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board, sensors, rs422, gpslog })
     }
 
-    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board, sensors, rs422], priority = 1)]
+    #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board, sensors, rs422, gpslog], priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
         let mesh = cx.local.mesh;
@@ -308,6 +331,8 @@ mod app {
         let sensors = cx.local.sensors;
         #[cfg(feature = "rs422")]
         let rs422 = cx.local.rs422;
+        #[cfg(feature = "gps-radio-log")]
+        let gpslog = cx.local.gpslog;
 
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_10X20)
@@ -327,6 +352,12 @@ mod app {
         // MPPT charger control period
         #[cfg(feature = "board")]
         let mut next_mppt = Mono::now();
+
+        // Radio stats snapshot period for the SD log
+        #[cfg(feature = "gps-radio-log")]
+        let stats_interval = 60_000_u32.millis();
+        #[cfg(feature = "gps-radio-log")]
+        let mut next_stats = Mono::now() + stats_interval;
 
         // Environmental sensor sweep every 30 s (first one shortly after
         // boot so the SCD41's 5 s first measurement is ready).
@@ -355,6 +386,22 @@ mod app {
             // Pulse the radio activity LEDs (TX on PC0, RX on PC1).
             #[cfg(feature = "board")]
             board.leds.update(sx1262_mesh_rs::platform::millis());
+
+            // Drain the GPS and radio event queue into the SD log.
+            #[cfg(feature = "gps-radio-log")]
+            {
+                gpslog.poll(&mut board.sd, sx1262_mesh_rs::platform::millis());
+                if Mono::now() >= next_stats {
+                    if let Ok(stats) = io.inner().lora_stats() {
+                        gpslog.log_stats(
+                            &mut board.sd,
+                            sx1262_mesh_rs::platform::millis(),
+                            stats,
+                        );
+                    }
+                    next_stats = Mono::now() + stats_interval;
+                }
+            }
 
             // Charger control loop: sample, then perturb the buck duty.
             #[cfg(feature = "board")]

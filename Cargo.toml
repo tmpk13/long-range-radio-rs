@@ -23,6 +23,10 @@ rs422 = ["dep:nb"]
 # I2C environmental sensor suite on the shared I2C2 bus: BME680, SCD41,
 # ADXL345/343, AS3935, BMV080 (presence only).
 sensor = []
+# NMEA GPS on USART1 (PB7 RX, 9600 8N1), kept powered and active.
+# Logs GPS sentences plus radio TX/RX events (RSSI, SNR, signal RSSI)
+# and periodic LoRa packet stats to a raw block region of the SD card.
+gps-radio-log = ["board", "dep:nb"]
 
 [dependencies]
 nb = { version = "1", optional = true }

@@ -185,6 +185,13 @@ impl Sx1262Driver {
         }
     }
 
+    /// LoRa packet statistics since the last stats reset:
+    /// `(received, CRC errors, header errors)`.
+    pub fn lora_stats(&mut self) -> Result<(u16, u16, u16), Sx1262Error> {
+        let stats = self.radio.lora_stats().map_err(|_| Sx1262Error::Radio)?;
+        Ok((stats.pkt_rx(), stats.pkt_crc(), stats.pkt_hdr_err()))
+    }
+
     /// Poll the RFBUSYS bit to wait for the radio to be ready.
     fn wait_on_busy(&self) {
         // On STM32WLE5 the BUSY signal is exposed as RFBUSYS in PWR->SR2.
@@ -248,6 +255,15 @@ impl PacketRadio for Sx1262Driver {
 
         #[cfg(feature = "board")]
         crate::board::activity::note_rx();
+
+        #[cfg(feature = "gps-radio-log")]
+        crate::gpslog::events::note_rx(
+            len as u8,
+            rssi,
+            // snr_pkt() is Ratio<i16> with denominator 4: quarter dB.
+            *pkt_status.snr_pkt().numer(),
+            pkt_status.signal_rssi_pkt().to_integer(),
+        );
 
         // Stay in RX — continuous mode persists
         Ok(Some((len, rssi)))
@@ -323,6 +339,9 @@ impl PacketRadio for Sx1262Driver {
             self.wait_on_busy();
             self.rx_active = true;
         }
+
+        #[cfg(feature = "gps-radio-log")]
+        crate::gpslog::events::note_tx(data.len() as u8, result.is_ok());
 
         result
     }

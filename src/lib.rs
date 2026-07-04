@@ -14,6 +14,8 @@ macro_rules! debug_println {
 pub mod board;
 pub mod boot_state;
 pub mod config;
+#[cfg(feature = "gps-radio-log")]
+pub mod gpslog;
 pub mod io;
 pub mod node;
 pub mod ota;
