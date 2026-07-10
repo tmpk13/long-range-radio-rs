@@ -33,6 +33,47 @@ fn format_pct(buf: &mut [u8; 16], pct: u32) -> &str {
     core::str::from_utf8(&buf[..5 + i]).unwrap_or("OTA ?%")
 }
 
+/// Builds a `K=<int> K=<int> ...` telemetry line sized for the 32-byte
+/// mesh payload.  A field that does not fit whole is dropped.
+#[cfg(any(feature = "sensor", feature = "rs422"))]
+struct TelemetryLine {
+    buf: [u8; 32],
+    len: usize,
+}
+
+#[cfg(any(feature = "sensor", feature = "rs422"))]
+impl TelemetryLine {
+    fn new() -> Self {
+        Self { buf: [0; 32], len: 0 }
+    }
+
+    fn push(&mut self, key: char, value: i32) {
+        use core::fmt::Write as _;
+        let mark = self.len;
+        let sep = if self.len == 0 { "" } else { " " };
+        if write!(self, "{}{}={}", sep, key, value).is_err() {
+            self.len = mark;
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+}
+
+#[cfg(any(feature = "sensor", feature = "rs422"))]
+impl core::fmt::Write for TelemetryLine {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let b = s.as_bytes();
+        if self.len + b.len() > self.buf.len() {
+            return Err(core::fmt::Error);
+        }
+        self.buf[self.len..self.len + b.len()].copy_from_slice(b);
+        self.len += b.len();
+        Ok(())
+    }
+}
+
 /*
     Seeed Wio-E5 (LoRa-E5) — STM32WLE5JC
 
@@ -359,6 +400,13 @@ mod app {
         #[cfg(feature = "gps-radio-log")]
         let mut next_stats = Mono::now() + stats_interval;
 
+        // Refresh the lat/long readout on the display at ~1 Hz (the GPS
+        // fix rate); the position changes slowly so this avoids flicker.
+        #[cfg(feature = "gps-radio-log")]
+        let gps_display_interval = 1_000_u32.millis();
+        #[cfg(feature = "gps-radio-log")]
+        let mut next_gps_display = Mono::now();
+
         // Environmental sensor sweep every 30 s (first one shortly after
         // boot so the SCD41's 5 s first measurement is ready).
         #[cfg(any(feature = "sensor", feature = "rs422"))]
@@ -401,6 +449,47 @@ mod app {
                     }
                     next_stats = Mono::now() + stats_interval;
                 }
+
+                // Show the current fix and lat/long on the display.
+                if !ota_active && *display_ok && Mono::now() >= next_gps_display {
+                    let gps = &gpslog.gps;
+                    let mut buf = [0u8; 16];
+                    display.clear(BinaryColor::Off).ok();
+                    Text::with_baseline(
+                        gps.fmt_status(&mut buf),
+                        Point::new(2, 2),
+                        text_style,
+                        Baseline::Top,
+                    )
+                    .draw(display)
+                    .ok();
+                    if gps.has_pos {
+                        let mut latbuf = [0u8; 16];
+                        let mut lonbuf = [0u8; 16];
+                        Text::with_baseline(
+                            gps.fmt_lat(&mut latbuf),
+                            Point::new(2, 24),
+                            text_style,
+                            Baseline::Top,
+                        )
+                        .draw(display)
+                        .ok();
+                        Text::with_baseline(
+                            gps.fmt_lon(&mut lonbuf),
+                            Point::new(2, 44),
+                            text_style,
+                            Baseline::Top,
+                        )
+                        .draw(display)
+                        .ok();
+                    }
+                    if display.flush().is_err() {
+                        rprintln!("I2C display lost");
+                        *display_ok = false;
+                        next_display_retry = Mono::now() + display_retry_interval;
+                    }
+                    next_gps_display = Mono::now() + gps_display_interval;
+                }
             }
 
             // Charger control loop: sample, then perturb the buck duty.
@@ -423,6 +512,10 @@ mod app {
             // skipped while an OTA transfer is in flight.
             #[cfg(any(feature = "sensor", feature = "rs422"))]
             if !ota_active && Mono::now() >= next_sensor {
+                // Compact `K=<int>` line broadcast after the sweep so the
+                // basestation (and the dashboard behind it) sees the
+                // readings: T/H centi-units, C ppm, M permille.
+                let mut tele = super::TelemetryLine::new();
                 #[cfg(feature = "sensor")]
                 {
                     let r = sensors.read();
@@ -447,6 +540,30 @@ mod app {
                             c.hum_pct_x100 % 100
                         );
                     }
+                    if let Some(s) = r.sht {
+                        rprintln!(
+                            "SHT45: T={}.{:02} C RH={}.{:02} %",
+                            s.temp_c_x100 / 100,
+                            (s.temp_c_x100 % 100).unsigned_abs(),
+                            s.hum_pct_x100 / 100,
+                            s.hum_pct_x100 % 100
+                        );
+                    }
+                    if let Some(m) = r.mcp {
+                        rprintln!(
+                            "MCP9808: T={}.{:02} C",
+                            m.temp_c_x100 / 100,
+                            (m.temp_c_x100 % 100).unsigned_abs()
+                        );
+                    }
+                    if let Some(b) = r.baro {
+                        rprintln!(
+                            "BMP280: T={}.{:02} C P={} Pa",
+                            b.temp_c_x100 / 100,
+                            (b.temp_c_x100 % 100).unsigned_abs(),
+                            b.press_pa
+                        );
+                    }
                     if let Some(a) = r.accel {
                         rprintln!("ADXL: x={} y={} z={} mg", a.x_mg, a.y_mg, a.z_mg);
                     }
@@ -457,17 +574,48 @@ mod app {
                             l.distance_km
                         );
                     }
+
+                    // Best available source per quantity.
+                    let temp = r
+                        .bme
+                        .map(|b| b.temp_c_x100)
+                        .or(r.sht.map(|s| s.temp_c_x100))
+                        .or(r.co2.map(|c| c.temp_c_x100))
+                        .or(r.mcp.map(|m| m.temp_c_x100))
+                        .or(r.baro.map(|b| b.temp_c_x100));
+                    let hum = r
+                        .bme
+                        .map(|b| b.hum_pct_x100)
+                        .or(r.sht.map(|s| s.hum_pct_x100))
+                        .or(r.co2.map(|c| c.hum_pct_x100));
+                    if let Some(t) = temp {
+                        tele.push('T', t);
+                    }
+                    if let Some(h) = hum {
+                        tele.push('H', h as i32);
+                    }
+                    if let Some(c) = r.co2 {
+                        tele.push('C', c.co2_ppm as i32);
+                    }
                 }
                 #[cfg(feature = "rs422")]
                 match rs422.read_soil() {
-                    Ok(soil) => rprintln!(
-                        "Soil: {}.{} % {}.{} C",
-                        soil.moisture_pct_x10 / 10,
-                        soil.moisture_pct_x10 % 10,
-                        soil.temp_c_x10 / 10,
-                        (soil.temp_c_x10 % 10).unsigned_abs()
-                    ),
+                    Ok(soil) => {
+                        rprintln!(
+                            "Soil: {}.{} % {}.{} C",
+                            soil.moisture_pct_x10 / 10,
+                            soil.moisture_pct_x10 % 10,
+                            soil.temp_c_x10 / 10,
+                            (soil.temp_c_x10 % 10).unsigned_abs()
+                        );
+                        tele.push('M', soil.moisture_pct_x10 as i32);
+                    }
                     Err(e) => debug_println!("Soil probe: {:?}", e),
+                }
+                if !tele.as_bytes().is_empty() {
+                    if let Err(e) = mesh.broadcast(tele.as_bytes(), BROADCAST_LIFETIME) {
+                        rprintln!("Sensor TX failed: {:?}", e);
+                    }
                 }
                 watchdog::feed(iwdg);
                 next_sensor = Mono::now() + sensor_interval;
@@ -511,15 +659,18 @@ mod app {
                         &msg.data[..],
                     );
 
-                    const LEN: usize = 32;
-                    let mut send_header: [u8; LEN] = *b"In:                             ";
-
-                    let offset = 4;
-                    let len = text.len().min(LEN-offset);
-
-                    send_header[offset..offset+len].copy_from_slice(text.as_bytes());
-
+                    // With the GPS logger the display is dedicated to the
+                    // lat/long readout, so skip the received-message banner.
+                    #[cfg(not(feature = "gps-radio-log"))]
                     if *display_ok {
+                        const LEN: usize = 32;
+                        let mut send_header: [u8; LEN] = *b"In:                             ";
+
+                        let offset = 4;
+                        let len = text.len().min(LEN-offset);
+
+                        send_header[offset..offset+len].copy_from_slice(text.as_bytes());
+
                         display.clear(BinaryColor::Off).ok();
                         Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
                             .draw(display)
@@ -555,13 +706,6 @@ mod app {
                 };
                 #[cfg(not(feature = "board"))]
                 let message: &[u8] = b"hello";
-                const LEN: usize = 32;
-                let mut send_header: [u8; LEN] = *b"Out:                            ";
-                
-                let offset = 5;
-                let len = message.len().min(LEN-offset);
-
-                send_header[offset..offset+len].copy_from_slice(&message[..len]);
 
                 tx_count += 1;
                 match mesh.broadcast(core::str::from_utf8(message).unwrap_or("UTF8 Message Error").as_bytes(), BROADCAST_LIFETIME) {
@@ -569,7 +713,18 @@ mod app {
                     Err(e) => rprintln!("TX #{} failed: {:?}", tx_count, e),
                 }
 
+                // With the GPS logger the display shows lat/long instead of
+                // the transmitted-message banner.
+                #[cfg(not(feature = "gps-radio-log"))]
                 if *display_ok {
+                    const LEN: usize = 32;
+                    let mut send_header: [u8; LEN] = *b"Out:                            ";
+
+                    let offset = 5;
+                    let len = message.len().min(LEN-offset);
+
+                    send_header[offset..offset+len].copy_from_slice(&message[..len]);
+
                     display.clear(BinaryColor::Off).ok();
                     Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("Error decoding"), Point::new(5, 64/2), text_style, Baseline::Middle)
                         .draw(display)

@@ -7,10 +7,17 @@
 //! | Sensor    | Address(es) | Measures                        | Support        |
 //! |-----------|-------------|---------------------------------|----------------|
 //! | BME680    | 0x76, 0x77  | temp, pressure, humidity, gas   | full           |
+//! | BMP280    | 0x76, 0x77  | temp, pressure                  | full           |
+//! | SHT45     | 0x44        | temp, humidity                  | full           |
+//! | MCP9808   | 0x18..0x1F  | temp                            | full           |
 //! | SCD41     | 0x62        | CO2, temp, humidity             | full           |
 //! | ADXL345/3 | 0x53, 0x1D  | acceleration                    | full           |
 //! | AS3935    | 0x03..0x01  | lightning                       | poll, no IRQ   |
 //! | BMV080    | 0x57, 0x56  | particulate matter              | presence only  |
+//!
+//! BME680 and BMP280 share the 0x76/0x77 address pair; both probes
+//! dispatch on the chip-id register (0xD0: 0x61 = BME680, 0x58 =
+//! BMP280), so one of each can coexist on opposite addresses.
 //!
 //! The BMV080's register protocol is only documented inside Bosch's
 //! closed-source vendor library, so it is detected but not read.
@@ -104,6 +111,28 @@ pub struct Scd41Reading {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+pub struct Sht45Reading {
+    /// Centidegrees C.
+    pub temp_c_x100: i32,
+    /// Centipercent RH.
+    pub hum_pct_x100: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Bmp280Reading {
+    /// Centidegrees C.
+    pub temp_c_x100: i32,
+    /// Barometric pressure, Pa.
+    pub press_pa: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Mcp9808Reading {
+    /// Centidegrees C.
+    pub temp_c_x100: i32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AccelReading {
     /// Milli-g per axis.
     pub x_mg: i32,
@@ -124,6 +153,9 @@ pub struct LightningEvent {
 pub struct Readings {
     pub bme: Option<BmeReading>,
     pub co2: Option<Scd41Reading>,
+    pub sht: Option<Sht45Reading>,
+    pub baro: Option<Bmp280Reading>,
+    pub mcp: Option<Mcp9808Reading>,
     pub accel: Option<AccelReading>,
     pub lightning: Option<LightningEvent>,
 }
@@ -132,6 +164,9 @@ pub struct Readings {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Found {
     pub bme680: Option<u8>,
+    pub bmp280: Option<u8>,
+    pub sht45: bool,
+    pub mcp9808: Option<u8>,
     pub scd41: bool,
     pub adxl345: Option<u8>,
     pub as3935: Option<u8>,
@@ -172,11 +207,31 @@ struct BmeCal {
 }
 
 // ---------------------------------------------------------------------------
+// BMP280 calibration
+
+#[derive(Debug, Clone, Copy, Default)]
+struct BmpCal {
+    t1: u16,
+    t2: i16,
+    t3: i16,
+    p1: u16,
+    p2: i16,
+    p3: i16,
+    p4: i16,
+    p5: i16,
+    p6: i16,
+    p7: i16,
+    p8: i16,
+    p9: i16,
+}
+
+// ---------------------------------------------------------------------------
 
 pub struct Sensors<I2C> {
     i2c: I2C,
     pub found: Found,
     bme_cal: BmeCal,
+    bmp_cal: BmpCal,
 }
 
 impl<I2C, E> Sensors<I2C>
@@ -189,15 +244,42 @@ where
             i2c,
             found: Found::default(),
             bme_cal: BmeCal::default(),
+            bmp_cal: BmpCal::default(),
         };
 
-        // BME680: chip id 0x61 at register 0xD0.
+        // BME680 (chip id 0x61) and BMP280 (chip id 0x58) share the
+        // 0x76/0x77 pair; the id register 0xD0 tells them apart.
         for addr in [0x76u8, 0x77] {
-            if matches!(s.reg_read(addr, 0xD0), Ok(0x61)) {
-                s.found.bme680 = Some(addr);
-                if s.bme_init(addr).is_err() {
-                    s.found.bme680 = None;
+            match s.reg_read(addr, 0xD0) {
+                Ok(0x61) if s.found.bme680.is_none() => {
+                    s.found.bme680 = Some(addr);
+                    if s.bme_init(addr).is_err() {
+                        s.found.bme680 = None;
+                    }
                 }
+                Ok(0x58) if s.found.bmp280.is_none() => {
+                    s.found.bmp280 = Some(addr);
+                    if s.bmp_init(addr).is_err() {
+                        s.found.bmp280 = None;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // SHT45: no id register; read the serial number (CRC-checked).
+        if s.sht45_serial().is_ok() {
+            s.found.sht45 = true;
+        }
+
+        // MCP9808: manufacturer id 0x0054, device id 0x04 in the high
+        // byte.  Address is strapped via A0..A2.  Powers up converting
+        // continuously, so no init is needed.
+        for addr in 0x18u8..=0x1F {
+            let man = s.reg16_read(addr, 0x06);
+            let dev = s.reg16_read(addr, 0x07);
+            if matches!(man, Ok(0x0054)) && matches!(dev, Ok(d) if d >> 8 == 0x04) {
+                s.found.mcp9808 = Some(addr);
                 break;
             }
         }
@@ -258,6 +340,19 @@ where
             } else {
                 None
             },
+            sht: if self.found.sht45 {
+                self.sht45_read().ok()
+            } else {
+                None
+            },
+            baro: self
+                .found
+                .bmp280
+                .and_then(|addr| self.bmp_read(addr).ok()),
+            mcp: self
+                .found
+                .mcp9808
+                .and_then(|addr| self.mcp_read(addr).ok()),
             accel: self
                 .found
                 .adxl345
@@ -270,6 +365,61 @@ where
         let mut byte = [0u8];
         self.i2c.write_read(addr, &[reg], &mut byte)?;
         Ok(byte[0])
+    }
+
+    fn reg16_read(&mut self, addr: u8, reg: u8) -> Result<u16, E> {
+        let mut raw = [0u8; 2];
+        self.i2c.write_read(addr, &[reg], &mut raw)?;
+        Ok(u16::from_be_bytes(raw))
+    }
+
+    // -- SHT45 --------------------------------------------------------------
+
+    /// Send a single-byte command and read back CRC-checked 16-bit words.
+    fn sht45_get(&mut self, cmd: u8, wait_ms: u32, words: &mut [u16; 2]) -> Result<(), ()> {
+        self.i2c.write(0x44, &[cmd]).map_err(|_| ())?;
+        delay_ms(wait_ms);
+        let mut raw = [0u8; 6];
+        self.i2c.read(0x44, &mut raw).map_err(|_| ())?;
+        for (i, word) in words.iter_mut().enumerate() {
+            let chunk = &raw[3 * i..3 * i + 3];
+            if sensirion_crc(&chunk[..2]) != chunk[2] {
+                return Err(());
+            }
+            *word = u16::from_be_bytes([chunk[0], chunk[1]]);
+        }
+        Ok(())
+    }
+
+    fn sht45_serial(&mut self) -> Result<(), ()> {
+        let mut words = [0u16; 2];
+        self.sht45_get(0x89, 1, &mut words)
+    }
+
+    fn sht45_read(&mut self) -> Result<Sht45Reading, ()> {
+        // 0xFD = measure, high precision (max 8.3 ms).
+        let mut words = [0u16; 2];
+        self.sht45_get(0xFD, 10, &mut words)?;
+        let hum = -600 + 12500 * words[1] as i32 / 65535;
+        Ok(Sht45Reading {
+            temp_c_x100: -4500 + 17500 * words[0] as i32 / 65535,
+            hum_pct_x100: hum.clamp(0, 10000) as u32,
+        })
+    }
+
+    // -- MCP9808 ------------------------------------------------------------
+
+    fn mcp_read(&mut self, addr: u8) -> Result<Mcp9808Reading, E> {
+        // Ambient temperature register: 13-bit two's complement,
+        // 0.0625 C per LSB.
+        let raw = self.reg16_read(addr, 0x05)?;
+        let mut t = (raw & 0x1FFF) as i32;
+        if t & 0x1000 != 0 {
+            t -= 0x2000;
+        }
+        Ok(Mcp9808Reading {
+            temp_c_x100: t * 25 / 4,
+        })
     }
 
     // -- ADXL345 ------------------------------------------------------------
@@ -302,7 +452,7 @@ where
         self.i2c.read(0x62, &mut raw[..len]).map_err(|_| ())?;
         for (i, word) in words.iter_mut().enumerate() {
             let chunk = &raw[3 * i..3 * i + 3];
-            if scd41_crc(&chunk[..2]) != chunk[2] {
+            if sensirion_crc(&chunk[..2]) != chunk[2] {
                 return Err(());
             }
             *word = u16::from_be_bytes([chunk[0], chunk[1]]);
@@ -507,10 +657,94 @@ where
             gas_ohm,
         })
     }
+
+    // -- BMP280 -------------------------------------------------------------
+
+    fn bmp_init(&mut self, addr: u8) -> Result<(), E> {
+        // Soft reset, then pull the calibration block (0x88..0x9F).
+        self.i2c.write(addr, &[0xE0, 0xB6])?;
+        delay_ms(3);
+
+        let mut c = [0u8; 24];
+        self.i2c.write_read(addr, &[0x88], &mut c)?;
+        let u16le = |lo: u8, hi: u8| u16::from_le_bytes([lo, hi]);
+        let i16le = |lo: u8, hi: u8| i16::from_le_bytes([lo, hi]);
+        self.bmp_cal = BmpCal {
+            t1: u16le(c[0], c[1]),
+            t2: i16le(c[2], c[3]),
+            t3: i16le(c[4], c[5]),
+            p1: u16le(c[6], c[7]),
+            p2: i16le(c[8], c[9]),
+            p3: i16le(c[10], c[11]),
+            p4: i16le(c[12], c[13]),
+            p5: i16le(c[14], c[15]),
+            p6: i16le(c[16], c[17]),
+            p7: i16le(c[18], c[19]),
+            p8: i16le(c[20], c[21]),
+            p9: i16le(c[22], c[23]),
+        };
+        Ok(())
+    }
+
+    fn bmp_read(&mut self, addr: u8) -> Result<Bmp280Reading, ()> {
+        // Forced mode: osrs_t x2, osrs_p x4 (~12 ms worst case).
+        self.i2c.write(addr, &[0xF4, 0x4D]).map_err(|_| ())?;
+
+        let start = millis();
+        loop {
+            delay_ms(5);
+            // status bit 3 = measuring.
+            let status = self.reg_read(addr, 0xF3).map_err(|_| ())?;
+            if status & 0x08 == 0 {
+                break;
+            }
+            if millis().wrapping_sub(start) > 100 {
+                return Err(());
+            }
+        }
+
+        let mut f = [0u8; 6];
+        self.i2c.write_read(addr, &[0xF7], &mut f).map_err(|_| ())?;
+        let press_adc = ((f[0] as u32) << 12) | ((f[1] as u32) << 4) | (f[2] as u32 >> 4);
+        let temp_adc = ((f[3] as u32) << 12) | ((f[4] as u32) << 4) | (f[5] as u32 >> 4);
+
+        let c = &self.bmp_cal;
+
+        // Temperature (datasheet float compensation).
+        let var1 = (temp_adc as f32 / 16384.0 - c.t1 as f32 / 1024.0) * c.t2 as f32;
+        let var2 = {
+            let v = temp_adc as f32 / 131072.0 - c.t1 as f32 / 8192.0;
+            v * v * c.t3 as f32
+        };
+        let t_fine = var1 + var2;
+        let temp_c = t_fine / 5120.0;
+
+        // Pressure.
+        let mut var1 = t_fine / 2.0 - 64000.0;
+        let mut var2 = var1 * var1 * c.p6 as f32 / 32768.0;
+        var2 += var1 * c.p5 as f32 * 2.0;
+        var2 = var2 / 4.0 + c.p4 as f32 * 65536.0;
+        var1 = (c.p3 as f32 * var1 * var1 / 524288.0 + c.p2 as f32 * var1) / 524288.0;
+        var1 = (1.0 + var1 / 32768.0) * c.p1 as f32;
+        let press_pa = if var1 != 0.0 {
+            let mut p = 1048576.0 - press_adc as f32;
+            p = (p - var2 / 4096.0) * 6250.0 / var1;
+            let v1 = c.p9 as f32 * p * p / 2147483648.0;
+            let v2 = p * c.p8 as f32 / 32768.0;
+            p + (v1 + v2 + c.p7 as f32) / 16.0
+        } else {
+            0.0
+        };
+
+        Ok(Bmp280Reading {
+            temp_c_x100: (temp_c * 100.0) as i32,
+            press_pa: press_pa as u32,
+        })
+    }
 }
 
-/// Sensirion CRC-8: poly 0x31, init 0xFF.
-fn scd41_crc(data: &[u8]) -> u8 {
+/// Sensirion CRC-8 (SCD41, SHT45): poly 0x31, init 0xFF.
+fn sensirion_crc(data: &[u8]) -> u8 {
     let mut crc: u8 = 0xFF;
     for &byte in data {
         crc ^= byte;

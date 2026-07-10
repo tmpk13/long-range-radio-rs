@@ -153,6 +153,12 @@ pub struct Gps {
     pub fix_quality: u8,
     /// GGA satellites in use.
     pub sats: u8,
+    /// Latest latitude in signed decimal degrees (north positive).
+    pub lat_deg: f32,
+    /// Latest longitude in signed decimal degrees (east positive).
+    pub lon_deg: f32,
+    /// Whether `lat_deg`/`lon_deg` hold a currently valid fix.
+    pub has_pos: bool,
 }
 
 impl Gps {
@@ -170,6 +176,9 @@ impl Gps {
             in_line: false,
             fix_quality: 0,
             sats: 0,
+            lat_deg: 0.0,
+            lon_deg: 0.0,
+            has_pos: false,
         }
     }
 
@@ -269,34 +278,176 @@ impl Gps {
                 self.update_fix();
                 true
             }
-            b"RMC" => true,
+            b"RMC" => {
+                self.update_rmc();
+                true
+            }
             _ => false,
         }
     }
 
-    /// Pull fix quality and satellite count out of a validated GGA
-    /// sentence: field 6 is quality, field 7 the satellites in use.
+    /// Pull fix quality, satellite count and position out of a validated
+    /// GGA sentence: field 2/3 latitude, field 4/5 longitude, field 6
+    /// quality, field 7 satellites in use.
     fn update_fix(&mut self) {
-        let mut field = 0usize;
-        let mut quality = 0u8;
-        let mut sats = 0u8;
-        for &b in &self.line[..self.len] {
-            if b == b',' {
-                field += 1;
-                continue;
-            }
-            if b.is_ascii_digit() {
-                let d = b - b'0';
-                if field == 6 {
-                    quality = quality.saturating_mul(10).saturating_add(d);
-                } else if field == 7 {
-                    sats = sats.saturating_mul(10).saturating_add(d);
-                }
-            }
-        }
+        let line = &self.line[..self.len];
+        let quality = parse_u8_field(nth_field(line, 6));
+        let sats = parse_u8_field(nth_field(line, 7));
+        let pos = if quality > 0 {
+            parse_coord(nth_field(line, 2), nth_field(line, 3))
+                .zip(parse_coord(nth_field(line, 4), nth_field(line, 5)))
+        } else {
+            None
+        };
         self.fix_quality = quality;
         self.sats = sats;
+        match pos {
+            Some((lat, lon)) => {
+                self.lat_deg = lat;
+                self.lon_deg = lon;
+                self.has_pos = true;
+            }
+            // A quality-0 GGA reports no fix; drop any stale position.
+            None if quality == 0 => self.has_pos = false,
+            None => {}
+        }
     }
+
+    /// Pull position out of a validated RMC sentence: field 2 is the
+    /// A/V status, field 3/4 latitude, field 5/6 longitude.  RMC carries
+    /// no satellite count, so `sats`/`fix_quality` are left to GGA.
+    fn update_rmc(&mut self) {
+        let line = &self.line[..self.len];
+        let active = nth_field(line, 2).first() == Some(&b'A');
+        let pos = if active {
+            parse_coord(nth_field(line, 3), nth_field(line, 4))
+                .zip(parse_coord(nth_field(line, 5), nth_field(line, 6)))
+        } else {
+            None
+        };
+        match pos {
+            Some((lat, lon)) => {
+                self.lat_deg = lat;
+                self.lon_deg = lon;
+                self.has_pos = true;
+            }
+            None if !active => self.has_pos = false,
+            None => {}
+        }
+    }
+
+    /// One-line fix summary for the display, e.g. "Fix 08 sat" or
+    /// "Acquiring 03" while there is no position yet.
+    pub fn fmt_status<'a>(&self, buf: &'a mut [u8; 16]) -> &'a str {
+        let bytes = if self.has_pos {
+            fmt_line(buf, format_args!("Fix {:02} sat", self.sats))
+        } else {
+            fmt_line(buf, format_args!("Acquiring {:02}", self.sats))
+        };
+        core::str::from_utf8(bytes).unwrap_or("")
+    }
+
+    /// Latitude for the display: magnitude and an N/S suffix, e.g.
+    /// "48.11730 N".
+    pub fn fmt_lat<'a>(&self, buf: &'a mut [u8; 16]) -> &'a str {
+        let (mag, hemi) = if self.lat_deg < 0.0 {
+            (-self.lat_deg, 'S')
+        } else {
+            (self.lat_deg, 'N')
+        };
+        core::str::from_utf8(fmt_line(buf, format_args!("{:.5} {}", mag, hemi))).unwrap_or("")
+    }
+
+    /// Longitude for the display: magnitude and an E/W suffix, e.g.
+    /// "11.51670 E".
+    pub fn fmt_lon<'a>(&self, buf: &'a mut [u8; 16]) -> &'a str {
+        let (mag, hemi) = if self.lon_deg < 0.0 {
+            (-self.lon_deg, 'W')
+        } else {
+            (self.lon_deg, 'E')
+        };
+        core::str::from_utf8(fmt_line(buf, format_args!("{:.5} {}", mag, hemi))).unwrap_or("")
+    }
+}
+
+/// The `n`th comma-separated field of an NMEA sentence (field 0 is the
+/// `$xxYYY` id).  Any trailing `*hh` checksum is stripped from the last
+/// field.  Returns an empty slice when the field is absent.
+fn nth_field(line: &[u8], n: usize) -> &[u8] {
+    let mut idx = 0usize;
+    let mut start = 0usize;
+    let mut i = 0usize;
+    while i < line.len() {
+        match line[i] {
+            b',' => {
+                if idx == n {
+                    return &line[start..i];
+                }
+                idx += 1;
+                start = i + 1;
+            }
+            b'*' => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    if idx == n {
+        &line[start..i]
+    } else {
+        &[]
+    }
+}
+
+/// Parse a run of ASCII digits, ignoring any other bytes.
+fn parse_u8_field(field: &[u8]) -> u8 {
+    let mut v = 0u8;
+    for &b in field {
+        if b.is_ascii_digit() {
+            v = v.saturating_mul(10).saturating_add(b - b'0');
+        }
+    }
+    v
+}
+
+/// Convert an NMEA `ddmm.mmmm` (lat) or `dddmm.mmmm` (lon) coordinate to
+/// signed decimal degrees, applying the N/S/E/W hemisphere field.
+fn parse_coord(field: &[u8], hemi: &[u8]) -> Option<f32> {
+    let dot = field.iter().position(|&b| b == b'.')?;
+    // Need at least one degree digit plus the two whole-minute digits.
+    if dot < 3 {
+        return None;
+    }
+    let deg_end = dot - 2;
+    let mut deg = 0f32;
+    for &b in &field[..deg_end] {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        deg = deg * 10.0 + (b - b'0') as f32;
+    }
+    let mut min = 0f32;
+    let mut scale = 0f32; // 0 until the decimal point is seen
+    for &b in &field[deg_end..] {
+        if b == b'.' {
+            scale = 1.0;
+            continue;
+        }
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        let d = (b - b'0') as f32;
+        if scale == 0.0 {
+            min = min * 10.0 + d;
+        } else {
+            scale *= 10.0;
+            min += d / scale;
+        }
+    }
+    let mut deg = deg + min / 60.0;
+    if matches!(hemi.first(), Some(b'S') | Some(b'W')) {
+        deg = -deg;
+    }
+    Some(deg)
 }
 
 /// Append-only log over raw SD blocks with a fixed header block.
@@ -501,6 +652,7 @@ impl GpsRadioLog {
 
         let mut got_sentence = false;
         if let Some(sentence) = self.gps.poll_line() {
+            rtt_target::rprintln!("GPS {}", sentence);
             let text = fmt_line(&mut line, format_args!("t={} GPS {}\n", now_ms, sentence));
             got_sentence = true;
             self.write(sd, text);
