@@ -651,13 +651,14 @@ mod app {
                 } else {
                     rx_count += 1;
                     let text = core::str::from_utf8(&msg.data).unwrap_or("<invalid utf8>");
-                    rprintln!("RX #{} from={}: {}", rx_count, msg.source, text);
-                    debug_println!(
-                        "  len={} rssi={} raw={:?}",
-                        msg.data.len(),
+                    rprintln!(
+                        "RX #{} from={} rssi={} dBm: {}",
+                        rx_count,
+                        msg.source,
                         io.last_rssi(),
-                        &msg.data[..],
+                        text
                     );
+                    debug_println!("  len={} raw={:?}", msg.data.len(), &msg.data[..]);
 
                     // With the GPS logger the display is dedicated to the
                     // lat/long readout, so skip the received-message banner.

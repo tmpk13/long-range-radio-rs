@@ -647,6 +647,11 @@ impl GpsRadioLog {
                     )
                 }
             };
+            // Mirror each radio event to RTT as well; RX lines carry the
+            // packet RSSI/SNR and signal RSSI.
+            if let Ok(s) = core::str::from_utf8(text) {
+                rtt_target::rprintln!("{}", s.trim_end());
+            }
             self.write(sd, text);
         }
 
