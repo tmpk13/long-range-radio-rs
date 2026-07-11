@@ -1,26 +1,95 @@
 //! Compile-time radio and mesh configuration.
 
+/// LoRa range/airtime preset: spreading factor, bandwidth and coding rate.
+///
+/// Higher presets trade throughput and on-air time for receiver sensitivity
+/// (link budget). On-air time grows roughly as 2^SF, so the TX timeouts and
+/// the mesh listen window below are scaled to match the selected preset.
+///
+/// | Preset    | SF   | BW       | CR  | Rx sens.  | ~Range | Airtime ~40 B |
+/// |-----------|------|----------|-----|-----------|--------|---------------|
+/// | `Fast`    | SF7  | 125 kHz  | 4/5 | -124 dBm  | 1x     | ~0.1 s        |
+/// | `Long`    | SF10 | 125 kHz  | 4/5 | -132 dBm  | ~2.5x  | ~0.6 s        |
+/// | `Max`     | SF12 | 125 kHz  | 4/8 | -137 dBm  | ~4x    | ~3.3 s        |
+/// | `Extreme` | SF12 | 62.5 kHz | 4/8 | -140 dBm  | ~5.5x  | ~6.6 s        |
+///
+/// Every preset transmits at the maximum +22 dBm; only the modulation
+/// changes. Both ends of a link must use the same preset to communicate.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RadioPreset {
+    /// SF7 / BW125 / CR4-5 - fastest, shortest range.
+    Fast,
+    /// SF10 / BW125 / CR4-5 - +8 dB sensitivity, ~2.5x range.
+    Long,
+    /// SF12 / BW125 / CR4-8 - +12.5 dB sensitivity, ~4x range.
+    Max,
+    /// SF12 / BW62.5 / CR4-8 - +15.5 dB sensitivity, ~5.5x range; needs the TCXO.
+    Extreme,
+}
+
+impl RadioPreset {
+    /// Human-readable name for boot logging.
+    pub const fn name(self) -> &'static str {
+        match self {
+            RadioPreset::Fast => "fast (SF7/BW125/CR4-5)",
+            RadioPreset::Long => "long (SF10/BW125/CR4-5)",
+            RadioPreset::Max => "max (SF12/BW125/CR4-8)",
+            RadioPreset::Extreme => "extreme (SF12/BW62.5/CR4-8)",
+        }
+    }
+}
+
+/// Active LoRa preset selecting the range/airtime trade-off.
+///
+/// Set at compile time via the `LORA_PRESET` environment variable, e.g.:
+///   LORA_PRESET=max cargo run --release
+/// Valid values: `fast` (default), `long`, `max`, `extreme`.
+pub const RADIO_PRESET: RadioPreset = match option_env!("LORA_PRESET") {
+    None => RadioPreset::Fast,
+    Some(s) => match s.as_bytes() {
+        b"fast" => RadioPreset::Fast,
+        b"long" => RadioPreset::Long,
+        b"max" => RadioPreset::Max,
+        b"extreme" => RadioPreset::Extreme,
+        _ => panic!("LORA_PRESET must be one of: fast, long, max, extreme"),
+    },
+};
+
 /// Polling loop timeout for TX completion (ms).
 ///
 /// `send()` blocks polling the IRQ register until `TxDone` fires or this
-/// deadline is reached.  For SF7/BW125 a ~40-byte packet takes ~50–80 ms
-/// on air, so 150 ms gives comfortable headroom while failing fast.
-pub const TX_POLL_TIMEOUT_MS: u64 = 150;
+/// deadline is reached. Scaled per [`RADIO_PRESET`] to cover the packet
+/// on-air time (which grows ~2^SF) with headroom while still failing fast.
+pub const TX_POLL_TIMEOUT_MS: u64 = match RADIO_PRESET {
+    RadioPreset::Fast => 150,
+    RadioPreset::Long => 1_000,
+    RadioPreset::Max => 4_000,
+    RadioPreset::Extreme => 7_500,
+};
 
 /// Chip-level TX timeout passed to `SetTx` (ms).
 ///
 /// The SX1262 will abort TX and raise a Timeout IRQ if this expires.
 /// Must be longer than `TX_POLL_TIMEOUT_MS` so the polling loop always
 /// exits first and we remain in control of the state machine.
-pub const TX_CHIP_TIMEOUT_MS: u64 = 300;
+pub const TX_CHIP_TIMEOUT_MS: u64 = match RADIO_PRESET {
+    RadioPreset::Fast => 300,
+    RadioPreset::Long => 1_300,
+    RadioPreset::Max => 4_500,
+    RadioPreset::Extreme => 8_200,
+};
 
 /// How long the mesh node listens before transmitting queued packets (ms).
 ///
 /// Must exceed the on-air time of the longest expected packet so that a node
-/// can detect a concurrent transmission before it starts its own.  At
-/// SF7/BW125 a ~40-byte nano-mesh packet takes ~75–100 ms on air; 200 ms
-/// gives a 2× margin.
-pub const MESH_LISTEN_PERIOD_MS: u32 = 200;
+/// can detect a concurrent transmission before it starts its own. Scaled per
+/// [`RADIO_PRESET`] alongside the packet airtime.
+pub const MESH_LISTEN_PERIOD_MS: u32 = match RADIO_PRESET {
+    RadioPreset::Fast => 200,
+    RadioPreset::Long => 900,
+    RadioPreset::Max => 4_000,
+    RadioPreset::Extreme => 7_000,
+};
 
 /// Hop-count lifetime for broadcast packets.
 ///
@@ -46,7 +115,10 @@ pub const FIRMWARE_VERSION: u16 = {
             let mut n: u16 = 0;
             while i < bytes.len() {
                 let d = bytes[i];
-                assert!(d >= b'0' && d <= b'9', "FW_VERSION must be a number 0-65535");
+                assert!(
+                    d >= b'0' && d <= b'9',
+                    "FW_VERSION must be a number 0-65535"
+                );
                 let next = n as u32 * 10 + (d - b'0') as u32;
                 assert!(next <= 65535, "FW_VERSION must be 0-65535");
                 n = next as u16;

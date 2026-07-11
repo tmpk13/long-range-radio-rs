@@ -16,6 +16,42 @@ Verbose debugging logging:
 Attach:
 `probe-rs attach --chip STM32WLE5JCIx --rtt-scan-memory target/thumbv7em-none-eabi/release/sx1262-mesh-rs`
 
+### Build-time configuration
+
+The firmware is configured at build time through environment variables and
+cargo features. Because these are compile-time constants, changing one triggers
+a rebuild; the value is baked into the flashed image.
+
+| Flag | Values | Default | Purpose |
+|------|--------|---------|---------|
+| `ADDRESS` | `1`-`255` | `1` | This node's mesh address |
+| `LORA_PRESET` | `fast`, `long`, `max`, `extreme` | `fast` | LoRa range/airtime trade-off (see below) |
+| `FW_VERSION` | `0`-`65535` | `1` | Firmware version for OTA downgrade prevention |
+| `--features debug` | (flag) | off | Verbose RTT logging |
+
+Example:
+    `ADDRESS=2 LORA_PRESET=max cargo run --release`
+
+#### LORA_PRESET
+
+Selects the spreading factor, bandwidth and coding rate. Higher presets trade
+throughput and on-air time for receiver sensitivity (link budget, i.e. range).
+Every preset transmits at the maximum +22 dBm; only the modulation changes. The
+TX timeouts and the mesh listen window scale automatically with the preset.
+
+| Preset | SF | BW | CR | Rx sensitivity | ~Range | Airtime (~40 B) |
+|--------|-----|--------|-----|-----------|--------|-----------------|
+| `fast` (default) | SF7 | 125 kHz | 4/5 | -124 dBm | 1x | ~0.1 s |
+| `long` | SF10 | 125 kHz | 4/5 | -132 dBm | ~2.5x | ~0.6 s |
+| `max` | SF12 | 125 kHz | 4/8 | -137 dBm | ~4x | ~3.3 s |
+| `extreme` | SF12 | 62.5 kHz | 4/8 | -140 dBm | ~5.5x | ~6.6 s |
+
+Both ends of a link must use the same preset to communicate. The higher presets
+have multi-second airtime, so throughput is low and only one node can transmit
+at a time; they also exceed the FCC 400 ms channel dwell limit for the 902-928
+band, so use them only where that is acceptable. `extreme` narrows the
+bandwidth and relies on the module's TCXO for frequency stability.
+
 ### Basestation
 
 The basestation node bridges the mesh network to a host PC via a single UART

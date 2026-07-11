@@ -1,6 +1,6 @@
 //! SX1262 radio driver implementing [`PacketRadio`] via the STM32WLE5 SubGHz peripheral.
 
-use crate::config::{TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
+use crate::config::{RADIO_PRESET, RadioPreset, TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
 use crate::platform;
 
 /// A packet-oriented radio interface.
@@ -24,12 +24,12 @@ pub trait PacketRadio {
     /// Maximum packet size in bytes.
     fn max_packet_len(&self) -> usize;
 }
+use stm32wlxx_hal::spi::{SgMiso, SgMosi};
 use stm32wlxx_hal::subghz::{
     CalibrateImage, CfgIrq, CodingRate, FallbackMode, HeaderType, Irq, LoRaBandwidth,
     LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime,
     RegMode, RfFreq, SpreadingFactor, StandbyClk, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
 };
-use stm32wlxx_hal::spi::{SgMiso, SgMosi};
 
 /// Errors from the SubGHz radio.
 #[derive(Debug)]
@@ -67,9 +67,7 @@ impl Sx1262Driver {
     pub fn init(&mut self, rf_frequency: u32) {
         debug_println!("Initialising SubGHz radio...");
         // Reset the radio and enter standby
-        self.radio
-            .set_standby(StandbyClk::Rc)
-            .expect("set_standby");
+        self.radio.set_standby(StandbyClk::Rc).expect("set_standby");
 
         // Use DCDC regulator for better efficiency
         self.radio.set_regulator_mode(RegMode::Smps).ok();
@@ -117,14 +115,43 @@ impl Sx1262Driver {
             )
             .expect("set_tx_params");
 
-        // LoRa modulation: SF7, BW125, CR4/5
+        // LoRa modulation: SF / BW / CR selected by the build-time preset.
+        // LDRO must be enabled when the symbol duration exceeds 16.38 ms
+        // (SF11/SF12 at BW125, SF12 at BW62.5), otherwise the link is
+        // unreliable.
+        let (sf, bw, cr, ldro) = match RADIO_PRESET {
+            RadioPreset::Fast => (
+                SpreadingFactor::Sf7,
+                LoRaBandwidth::Bw125,
+                CodingRate::Cr45,
+                false,
+            ),
+            RadioPreset::Long => (
+                SpreadingFactor::Sf10,
+                LoRaBandwidth::Bw125,
+                CodingRate::Cr45,
+                false,
+            ),
+            RadioPreset::Max => (
+                SpreadingFactor::Sf12,
+                LoRaBandwidth::Bw125,
+                CodingRate::Cr48,
+                true,
+            ),
+            RadioPreset::Extreme => (
+                SpreadingFactor::Sf12,
+                LoRaBandwidth::Bw62,
+                CodingRate::Cr48,
+                true,
+            ),
+        };
         self.radio
             .set_lora_mod_params(
                 &LoRaModParams::new()
-                    .set_sf(SpreadingFactor::Sf7)
-                    .set_bw(LoRaBandwidth::Bw125)
-                    .set_cr(CodingRate::Cr45)
-                    .set_ldro_en(false),
+                    .set_sf(sf)
+                    .set_bw(bw)
+                    .set_cr(cr)
+                    .set_ldro_en(ldro),
             )
             .expect("set_lora_mod_params");
 
@@ -167,6 +194,7 @@ impl Sx1262Driver {
 
         // Over-current protection
         self.radio.set_pa_ocp(Ocp::Max140m).ok();
+        debug_println!("LoRa preset: {}", RADIO_PRESET.name());
         debug_println!("SubGHz init complete.");
     }
 
@@ -307,10 +335,11 @@ impl PacketRadio for Sx1262Driver {
         #[cfg(feature = "board")]
         crate::board::activity::note_tx();
 
-        if cfg!(feature = "debug") && let Ok(status) = self.radio.status() {
-                debug_println!("  send: TX started, chip status = {:?}", status);
+        if cfg!(feature = "debug")
+            && let Ok(status) = self.radio.status()
+        {
+            debug_println!("  send: TX started, chip status = {:?}", status);
         }
-        
 
         // Poll IRQ for TxDone/Timeout
         let start_ms = platform::millis();
@@ -329,7 +358,11 @@ impl PacketRadio for Sx1262Driver {
                 let timeout = irq & Irq::Timeout.mask() != 0;
                 if tx_done || timeout {
                     let _ = self.radio.clear_irq_status(0xFFFF);
-                    break if tx_done { Ok(()) } else { Err(Sx1262Error::Timeout) };
+                    break if tx_done {
+                        Ok(())
+                    } else {
+                        Err(Sx1262Error::Timeout)
+                    };
                 }
             }
         };
