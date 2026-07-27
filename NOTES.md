@@ -733,3 +733,134 @@ the app loop, so mesh-internal traffic and future packet forwarding
 blink too. The driver sets lock-free atomic flags in board::activity;
 Leds::update in the main loop starts/retires 30 ms pulses, avoiding
 any GPIO coupling inside the radio driver.
+
+## GPS + radio link logger (gps-radio-log feature)
+
+GPS goes on USART1 (PB7 RX at 9600 8N1, AF7) - the only free UART:
+USART2 is the RS-422 bus and LPUART1's PC0/PC1 pins are the activity
+LEDs. RX-only; PB6 (USART1 TX) is left free until a module needs
+configuring. The GPS is kept powered and active permanently (power
+budget accepted for this feature), so no PMTK/UBX standby commands.
+The feature implies `board` (SD card) and `nb` (UART reads).
+
+NMEA handling: assemble lines, verify the XOR checksum, keep only
+RMC/GGA (any talker prefix) and log the raw sentence - raw NMEA
+already carries every metric (UTC, lat/lon, fix, sats, HDOP, alt,
+speed, course), so the SD log stores sentences verbatim. GGA yields
+fix-quality/sats for an RTT status line; GGA and RMC are also parsed
+for position (see below). At 9600 baud (~1 char/ms) the 1 ms main
+loop keeps up; the blocking sensor sweep (~0.5 s) causes UART
+overruns, handled by clearing ICR flags and resyncing on the next '$'.
+
+Display readout: in this build the SSD1306 is dedicated to a lat/long
+readout (the TX/RX message banners are cfg'd out; OTA progress still
+shows). GGA (quality>0) and RMC (status 'A') coordinates are parsed
+to signed decimal degrees - NMEA ddmm.mmmm / dddmm.mmmm split as
+deg = all-but-last-two integer digits, min = the rest, deg + min/60,
+negated for S/W. f32 throughout (matches the sensor suite; core's
+float Display handles the "{:.5}" format, no libm). A quality-0 GGA
+or status-'V' RMC clears the fix so the display falls back to
+"Acquiring NN". Refreshed at 1 Hz (the fix rate) to avoid flicker;
+`Gps::has_pos`/`lat_deg`/`lon_deg` plus `fmt_status`/`fmt_lat`/
+`fmt_lon` are the interface. Lines fit the 12-char FONT_10X20 width
+(worst case "145.12267 W" = 11 chars).
+
+Radio metrics: poll_recv already read LoRaPacketStatus for RSSI; the
+driver now also queues SNR (snr_pkt() numer() = raw quarter-dB) and
+signal_rssi_pkt (post-despread RSSI) per RX, TX length/result per TX,
+into a small critical-section ring (gpslog::events) drained by the
+main loop - same pattern as board::activity, but with payloads. A
+STATS line (pkt_rx/pkt_crc/pkt_hdr_err from Get_Stats) logs every
+60 s; that is everything the SX126x exposes.
+
+Each drained event is also echoed to RTT (the SD-log line, minus the
+trailing newline) so RSSI/SNR are visible live without pulling the
+card. Independently, the main-loop receive path prints RSSI on its
+always-on "RX #n ... rssi=<dBm>" line (io.last_rssi()) rather than
+only under the `debug` feature, so RSSI shows in RTT in every build.
+
+SD format: no filesystem. Header block at LBA 2048 (1 MiB in, clear
+of any partition metadata) holds magic "GRL1" + next-LBA; data blocks
+follow (1 GiB region, wraps). Blocks are zero-padded ASCII lines
+("t=<ms> GPS/RX/TX/STATS ...") so recovery is dd+strings. Header is
+checkpointed every 16 blocks (not every block) to cut wear; resume
+skips 16+1 blocks past the stored pointer so unrecorded blocks and a
+partial tail survive reboots. Partial blocks are synced in place
+every 10 s, bounding loss on power failure. SD errors drop the logger
+to not-ready and a 10 s retry path re-inits the card, so a card
+inserted after boot (or a transient SPI error) recovers.
+
+## SHT45 / MCP9808 / BMP280 added to the sensor suite
+
+Same in-repo driver approach (eh 0.2 traits only, no crates):
+- SHT45 (0x44): single-byte commands (0xFD measure hi-precision,
+  0x89 serial for presence), 10 ms wait, 2x 16-bit words with the
+  same Sensirion CRC-8 as the SCD41 (scd41_crc renamed
+  sensirion_crc). RH clamped to 0..100 (raw formula goes to -6/+119).
+- MCP9808 (0x18..0x1F scanned): identified via manufacturer id
+  0x0054 (reg 0x06) + device id 0x04 (reg 0x07 high byte). No init -
+  powers up converting. Temp reg 0x05 is 13-bit two's complement at
+  0.0625 C/LSB (x100 = t * 25 / 4).
+- BMP280 (0x76/0x77): shares the address pair with the BME680, so
+  the probe dispatches on chip-id reg 0xD0 (0x61 = BME680, 0x58 =
+  BMP280); one of each can coexist on opposite addresses. Forced
+  mode osrs_t x2 / osrs_p x4, poll status bit 3, datasheet float
+  compensation (same t_fine scheme as the BME680 but i16 T3/P3 and
+  no p10 term).
+
+## Sensor sweep broadcast + dashboard capture path
+
+The 30 s sweep now broadcasts a compact ASCII line over the mesh
+(alongside the existing rprintln output): `T=<cC> H=<c%RH> C=<ppm>
+M=<permille moisture>`. Keys are disjoint from the heartbeat's
+V/B/I/D so receivers parse both with one key table. T/H pick the
+best available source (BME680 > SHT45 > SCD41 > MCP9808 > BMP280).
+Pressure is not broadcast - it does not fit the 32-byte payload
+(worst case with P would be 38 bytes). TelemetryLine in main.rs
+drops any field that does not fit whole rather than truncating
+mid-number.
+
+Host path to the dashboard: basestation data UART -> data_relay.py
+(JSON lines) -> forest-datad (../forest-data/daemon, captures to
+CSV) -> dashboard LiveSource tails the CSV (FOREST_LIVE_LOG env
+var). Details in ../forest-data/NOTES.md.
+
+## LoRa range presets via LORA_PRESET build flag
+
+SF/BW/CR are now build-time selectable via the LORA_PRESET env var
+(fast/long/max/extreme), same option_env! pattern as ADDRESS. Selection
+lives in config.rs (RadioPreset enum + RADIO_PRESET const); radio.rs
+init() matches on it for set_lora_mod_params. TX power stays +22 dBm on
+all presets - only modulation changes.
+
+Key gotchas baked in:
+- Airtime grows ~2^SF (SF7 ~0.1 s -> SF12 ~3.3 s for a 40 B packet), so
+  TX_POLL/CHIP_TIMEOUT and MESH_LISTEN_PERIOD are derived per-preset in
+  config.rs. Leaving them at the SF7 values would make every TX time out
+  before TxDone fires.
+- LDRO must be enabled for symbol time > 16.38 ms (SF11/SF12 @ BW125,
+  SF12 @ BW62.5); the preset match sets ldro accordingly.
+- Invalid LORA_PRESET values panic at compile time (const match).
+- max/extreme exceed the FCC 400 ms dwell limit for 902-928; extreme
+  relies on the Wio-E5 TCXO for the narrow 62.5 kHz bandwidth.
+
+Confirmed +22 dBm is genuinely max: PaConfig(duty=0x04,hp_max=0x07,Hp) +
+set_power(0x16) exactly match the HAL's PaConfig::HP_22 / TxParams::HP
+presets; OCP at Max140m (140 mA) is required for the HP PA or output
+would be clamped below +22.
+
+## GPS-log status line: sats + last RX RSSI + time-since-RX
+
+The OLED top line in gps-radio-log now reads e.g. "08 -95dBm 1m23s"
+(sat count, last packet RSSI, elapsed since last RX), replacing the old
+"Fix 08 sat" text. Choices:
+- The RX timestamp is stamped at the physical layer in io.rs (note_rx,
+  alongside last_rssi via platform::millis()), not at mesh.receive().
+  This keeps "time since last RX" consistent with last_rssi - both refer
+  to the same heard packet, including ones the mesh doesn't surface as
+  app messages. Exposed as LoraIo::last_rx_ms() -> Option<u32> (None
+  before any RX). Elapsed uses wrapping_sub to ride the DWT millis wrap.
+- Three fields don't fit 12 chars of FONT_10X20, so the status line uses
+  FONT_7X13 (~18 chars); lat/long below stay at FONT_10X20. Fix state is
+  now implied by lat/long appearing rather than the "Fix"/"Acquiring"
+  word.
