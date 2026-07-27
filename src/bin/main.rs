@@ -380,8 +380,16 @@ mod app {
             .text_color(BinaryColor::On)
             .build();
 
+        // The combined GPS/radio status line packs three fields, so it
+        // uses a narrower font than the lat/long readout below it.
+        #[cfg(feature = "gps-radio-log")]
+        let status_style = MonoTextStyleBuilder::new()
+            .font(&embedded_graphics::mono_font::iso_8859_13::FONT_7X13)
+            .text_color(BinaryColor::On)
+            .build();
+
         // Stagger first TX by address so nodes don't collide on boot
-        let tx_interval = 10_000_u32.millis();
+        let tx_interval = 4_000_u32.millis();
         let mut next_tx = Mono::now() + (THIS_ADDRESS as u32 * 3_000).millis();
         let mut tx_count: u32 = 0;
         let mut rx_count: u32 = 0;
@@ -453,12 +461,17 @@ mod app {
                 // Show the current fix and lat/long on the display.
                 if !ota_active && *display_ok && Mono::now() >= next_gps_display {
                     let gps = &gpslog.gps;
-                    let mut buf = [0u8; 16];
+                    // Milliseconds since the last radio packet (wrapping_sub
+                    // tracks the DWT millis rollover), or None if none yet.
+                    let since_rx = io
+                        .last_rx_ms()
+                        .map(|t| sx1262_mesh_rs::platform::millis().wrapping_sub(t));
+                    let mut buf = [0u8; 24];
                     display.clear(BinaryColor::Off).ok();
                     Text::with_baseline(
-                        gps.fmt_status(&mut buf),
-                        Point::new(2, 2),
-                        text_style,
+                        gps.fmt_status_line(&mut buf, io.last_rssi(), since_rx),
+                        Point::new(2, 6),
+                        status_style,
                         Baseline::Top,
                     )
                     .draw(display)

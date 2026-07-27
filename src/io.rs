@@ -43,6 +43,9 @@ pub struct LoraIo<R: PacketRadio> {
     rx_len: usize,
     rx_pos: usize,
     last_rssi: i16,
+    // `platform::millis()` timestamp of the last received packet.
+    last_rx_ms: u32,
+    have_rx: bool,
     // TX buffering
     tx_buf: [u8; BUF_SIZE],
     tx_len: usize,
@@ -57,6 +60,8 @@ impl<R: PacketRadio> LoraIo<R> {
             rx_len: 0,
             rx_pos: 0,
             last_rssi: 0,
+            last_rx_ms: 0,
+            have_rx: false,
             tx_buf: [0u8; BUF_SIZE],
             tx_len: 0,
         }
@@ -65,6 +70,19 @@ impl<R: PacketRadio> LoraIo<R> {
     /// RSSI of the last successfully received packet (dBm).
     pub fn last_rssi(&self) -> i16 {
         self.last_rssi
+    }
+
+    /// `platform::millis()` timestamp of the last received packet, or
+    /// `None` if nothing has been received yet.
+    pub fn last_rx_ms(&self) -> Option<u32> {
+        self.have_rx.then_some(self.last_rx_ms)
+    }
+
+    /// Record the RSSI and arrival time of a freshly received packet.
+    fn note_rx(&mut self, rssi: i16) {
+        self.last_rssi = rssi;
+        self.last_rx_ms = crate::platform::millis();
+        self.have_rx = true;
     }
 
     /// Borrow the inner radio for diagnostics or direct access.
@@ -89,7 +107,7 @@ impl<R: PacketRadio> ReadReady for LoraIo<R> {
             Ok(Some((len, rssi))) => {
                 self.rx_len = len;
                 self.rx_pos = 0;
-                self.last_rssi = rssi;
+                self.note_rx(rssi);
                 Ok(true)
             }
             Ok(None) => Ok(false),
@@ -106,7 +124,7 @@ impl<R: PacketRadio> Read for LoraIo<R> {
                 Ok(Some((len, rssi))) => {
                     self.rx_len = len;
                     self.rx_pos = 0;
-                    self.last_rssi = rssi;
+                    self.note_rx(rssi);
                 }
                 Ok(None) => return Ok(0),
                 Err(_) => return Err(IoError::Radio),

@@ -18,3 +18,4 @@
 
 - [ ] Make sure the OTA updates will not be effected by interruptions.
 
+Add rx boost

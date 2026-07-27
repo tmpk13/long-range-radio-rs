@@ -336,13 +336,26 @@ impl Gps {
         }
     }
 
-    /// One-line fix summary for the display, e.g. "Fix 08 sat" or
-    /// "Acquiring 03" while there is no position yet.
-    pub fn fmt_status<'a>(&self, buf: &'a mut [u8; 16]) -> &'a str {
-        let bytes = if self.has_pos {
-            fmt_line(buf, format_args!("Fix {:02} sat", self.sats))
-        } else {
-            fmt_line(buf, format_args!("Acquiring {:02}", self.sats))
+    /// One-line status for the display combining the satellite count,
+    /// the RSSI of the last received radio packet, and how long ago that
+    /// packet arrived, e.g. "08 -95dBm 1m23s".  `since_rx` is the elapsed
+    /// milliseconds since the last packet, or `None` when nothing has been
+    /// heard yet (rendered "08 no rx").
+    pub fn fmt_status_line<'a>(
+        &self,
+        buf: &'a mut [u8; 24],
+        rssi: i16,
+        since_rx: Option<u32>,
+    ) -> &'a str {
+        let bytes = match since_rx {
+            Some(ms) => {
+                let secs = ms / 1000;
+                fmt_line(
+                    buf,
+                    format_args!("{:02} {}dBm {}m{:02}s", self.sats, rssi, secs / 60, secs % 60),
+                )
+            }
+            None => fmt_line(buf, format_args!("{:02} no rx", self.sats)),
         };
         core::str::from_utf8(bytes).unwrap_or("")
     }
