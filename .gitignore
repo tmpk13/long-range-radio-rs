@@ -27,4 +27,6 @@ target/
 
 notforgit/
 
-__pycache__/NOTES.md
+# Python bytecode caches from the basestation host tooling
+__pycache__/
+*.py[cod]
