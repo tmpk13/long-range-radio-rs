@@ -142,6 +142,15 @@ pub mod events {
 /// Longest NMEA sentence: 82 characters including "$" and CRLF.
 const NMEA_MAX: usize = 82;
 
+/// Bytes drained from USART1 per [`poll_line`](Gps::poll_line) call. A fix
+/// at the 1 Hz default emits a few hundred bytes a second, so the main
+/// loop's polling never approaches this in normal use; the cap exists for
+/// the opposite case, where no module is attached and the floating RX pin
+/// streams noise that never completes a sentence. Bounding the drain keeps
+/// that from monopolizing the loop and starving the radio receive, so a node
+/// with no GPS still hears the network.
+const DRAIN_BUDGET: usize = 512;
+
 /// NMEA receiver on USART1: assembles lines, validates checksums and
 /// keeps a little fix state for status reporting.
 pub struct Gps {
@@ -207,7 +216,7 @@ impl Gps {
     /// RMC or GGA sentence (without CRLF); any further pending bytes
     /// stay in the UART for the next poll.
     pub fn poll_line(&mut self) -> Option<&str> {
-        loop {
+        for _ in 0..DRAIN_BUDGET {
             let byte = match self.uart.read() {
                 Ok(b) => b,
                 Err(nb::Error::WouldBlock) => return None,
@@ -246,6 +255,7 @@ impl Gps {
                 _ => {}
             }
         }
+        None
     }
 
     /// Validate and filter the assembled sentence; updates fix state.
@@ -618,10 +628,9 @@ impl GpsRadioLog {
             self.next_retry_ms = now_ms.wrapping_add(RETRY_MS);
             if sd.card_present() {
                 match self.log.setup(sd) {
-                    Ok(()) => rtt_target::rprintln!(
-                        "gps-radio-log: logging at block {}",
-                        self.log.lba
-                    ),
+                    Ok(()) => {
+                        rtt_target::rprintln!("gps-radio-log: logging at block {}", self.log.lba);
+                    }
                     Err(e) => debug_println!("gps-radio-log: SD setup failed: {:?}", e),
                 }
             }

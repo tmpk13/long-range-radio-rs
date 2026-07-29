@@ -114,7 +114,7 @@ mod app {
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
     use sx1262_mesh_rs::ota_protocol;
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
-    use sx1262_mesh_rs::radio::Sx1262Driver;
+    use sx1262_mesh_rs::radio::{RfSwitch, Sx1262Driver};
     use sx1262_mesh_rs::OtaReceiver;
     use sx1262_mesh_rs::watchdog;
 
@@ -214,15 +214,17 @@ mod app {
         // Confirm boot to the bootloader (marks firmware as healthy).
         sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
-        // ---- SubGHz radio (integrated SX1262) --------------------------------
+        let gpioa = PortA::split(dp.GPIOA, &mut rcc);
+        let gpiob = PortB::split(dp.GPIOB, &mut rcc);
+
+        // ---- SubGHz radio (integrated SX1262) and its antenna switch ---------
         let sg = SubGhz::new(dp.SPI3, &mut rcc);
-        let mut radio = Sx1262Driver::new(sg);
+        let rf_switch = cortex_m::interrupt::free(|cs| RfSwitch::new(gpioa.a4, gpioa.a5, cs));
+        let mut radio = Sx1262Driver::new(sg, rf_switch);
         radio.init(super::RF_FREQ);
         radio.print_diagnostics();
 
         // ---- I2C2 display (SSD1306 128x64) -----------------------------------
-        let gpioa = PortA::split(dp.GPIOA, &mut rcc);
-        let gpiob = PortB::split(dp.GPIOB, &mut rcc);
         let i2c = cortex_m::interrupt::free(|cs| {
             I2c2::new(dp.I2C2, (gpiob.b15, gpioa.a15), 100_000, &mut rcc, true, cs)
         });
@@ -290,8 +292,12 @@ mod app {
             watchdog::feed(&iwdg);
             if board.sd.card_present() {
                 match board.sd.init() {
-                    Ok(kind) => rprintln!("SD card ready: {:?}", kind),
-                    Err(e) => rprintln!("SD card init failed: {:?}", e),
+                    Ok(kind) => {
+                        rprintln!("SD card ready: {:?}", kind);
+                    }
+                    Err(e) => {
+                        rprintln!("SD card init failed: {:?}", e);
+                    }
                 }
             } else {
                 rprintln!("No SD card inserted");
@@ -723,8 +729,12 @@ mod app {
 
                 tx_count += 1;
                 match mesh.broadcast(core::str::from_utf8(message).unwrap_or("UTF8 Message Error").as_bytes(), BROADCAST_LIFETIME) {
-                    Ok(()) => rprintln!("TX #{}", tx_count),
-                    Err(e) => rprintln!("TX #{} failed: {:?}", tx_count, e),
+                    Ok(()) => {
+                        rprintln!("TX #{}", tx_count);
+                    }
+                    Err(e) => {
+                        rprintln!("TX #{} failed: {:?}", tx_count, e);
+                    }
                 }
 
                 // With the GPS logger the display shows lat/long instead of

@@ -140,8 +140,15 @@ and re-probed on the same interval.
 | UART1    | PB6 (TX), PB7 (RX) | Pins 9-10, gateway serial to Linux box |
 | SPI2     | PB13 (SCK), PB14 (MISO), PA10 (MOSI), PB9 (NSS) | Pins 24-27, note PB13 is also boot pin |
 | GPIO     | PB4, PB3 | Pins 7-8 |
+| RF switch | PA4 (control 1), PA5 (control 2) | Module-internal, not on a pad |
 
 *SPI SCK must remain inactive for boot*
+
+The antenna switch is inside the module and has to be driven by the MCU:
+the radio die has no bonded DIO2, so there is no `SetDio2AsRfSwitchCtrl` to
+hand the job to the radio. Both lines low isolates the antenna; control 1
+high selects the receiver, control 2 high the high-power PA. PA4 and PA5
+are therefore not available for anything else.
 
 ![wio-e5-pinout](wio-e5-pinout.png)
 

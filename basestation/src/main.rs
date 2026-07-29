@@ -68,7 +68,7 @@ mod app {
         config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS},
         ota_protocol,
         platform::SYSCLK_HZ,
-        radio::Sx1262Driver,
+        radio::{RfSwitch, Sx1262Driver},
         watchdog,
     };
     use rtt_target::{rprintln, rtt_init, set_print_channel};
@@ -142,9 +142,11 @@ mod app {
         // Confirm boot to the bootloader
         sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
 
-        // ---- SubGHz radio (integrated SX1262) --------------------------------
+        // ---- SubGHz radio (integrated SX1262) and its antenna switch ---------
+        let gpioa = stm32wlxx_hal::gpio::PortA::split(dp.GPIOA, &mut rcc);
         let sg = SubGhz::new(dp.SPI3, &mut rcc);
-        let mut radio = Sx1262Driver::new(sg);
+        let rf_switch = cortex_m::interrupt::free(|cs| RfSwitch::new(gpioa.a4, gpioa.a5, cs));
+        let mut radio = Sx1262Driver::new(sg, rf_switch);
         radio.init(super::RF_FREQ);
         radio.print_diagnostics();
 

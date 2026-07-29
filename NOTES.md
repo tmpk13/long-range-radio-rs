@@ -864,3 +864,74 @@ The OLED top line in gps-radio-log now reads e.g. "08 -95dBm 1m23s"
   FONT_7X13 (~18 chars); lat/long below stay at FONT_10X20. Fix state is
   now implied by lat/long appearing rather than the "Fix"/"Acquiring"
   word.
+
+## Radio fixes ported back from the esp32c6-gps derivative
+
+That project started as a copy of this one and its radio was debugged much
+further in the field. These are the bug fixes brought back; the mesh layer
+was deliberately left alone.
+
+- **RF antenna switch (PA4/PA5) was never driven.** The single biggest one.
+  The LoRa-E5 puts the antenna switch inside the module and the radio die has
+  no bonded DIO2, so `SetDio2AsRfSwitchCtrl` does not exist here - the MCU has
+  to select the path itself. The pins sat in their reset state (analog in),
+  the switch floated, and signal reached the antenna only through the
+  switch's off-state isolation: tens of dB down, which works across a bench
+  and nowhere else. `RfSwitch` in radio.rs now owns the pins and points them
+  before every SetTx and SetRx, isolating the antenna in standby and while
+  `init` reconfigures the PA. Both low = isolated, ctrl1 high = RX,
+  ctrl2 high = TX (high-power PA).
+- **`set_rx(Timeout::DISABLED)` armed single-shot RX, not continuous.** On the
+  SX126x the SetRx timeout doubles as a mode select: 0x000000 is single mode
+  (receiver drops to the fallback mode after one packet), 0xFFFFFF is
+  continuous. `Timeout::DISABLED` is 0, so a node went deaf after its first
+  received packet until its own next transmit re-armed RX. Now `RX_CONTINUOUS`.
+- **TX left the receive payload ceiling at the last frame's length.** With an
+  explicit header the packet-params payload length is the largest payload the
+  receiver will *accept*; transmit has to narrow it to the frame being sent.
+  Re-entering RX without restoring 255 caps the receiver at the size of this
+  node's own last transmission. All RX arming now goes through `enter_rx`.
+- **Bad-CRC packets were handed up as valid.** The chip raises RxDone
+  alongside Err on a CRC failure with the corrupt payload still in the
+  buffer, and nothing above the driver checksums. Err is now enabled in the
+  IRQ mask and those packets are dropped.
+- **No recalibration after the TCXO came up.** The automatic power-up
+  calibration runs before the TCXO is enabled, so RC64k/RC13M/PLL/ADC/image
+  were all derived from a clock that was not running - frequency error and
+  lost sensitivity, with no failure reported. `calibrate(0x7F)` now runs
+  after `set_tcxo_mode`.
+- **SMPS clock detection.** Must be enabled *before* the SMPS is selected.
+  The HAL's `set_smps_clock_det_en` writes the whole register and would clear
+  the rest of the regulator config, so this is a read-modify-write through
+  the raw `read_reg`/`write_reg` helpers.
+- **The two SX126x transmit errata.** TX clamp (0x08D8 bits 4:1) for PA
+  tolerance of antenna mismatch, and TX modulation (0x0889 bit 2) which must
+  track the LoRa bandwidth. `stm32wlxx-hal` keeps its register table private,
+  hence `subghz_xfer` driving SUBGHZSPI directly.
+- **Image calibration is per-band.** Was hardcoded to 902-928; now derived
+  from the configured frequency via `image_band`.
+- **`print_diagnostics` reads GetError.** The status byte reports the mode
+  the radio is in, not whether it got there intact - a TCXO that never
+  started or a PLL that never locked still reports a healthy standby.
+- **Bounded the NMEA drain** (`DRAIN_BUDGET` in gpslog.rs). With no GPS
+  attached the floating USART1 RX pin can stream noise that never completes
+  a sentence, and the unbounded drain loop could monopolize the main loop and
+  starve the radio poll.
+
+Deliberately **not** ported: the derivative moved to the private LoRa sync
+word (0x1424). It is a real improvement - on the public word the receiver
+locks onto every LoRaWAN preamble in earshot - but nodes on different sync
+words cannot hear each other at all, so it is a flag day for the whole
+fleet. Also skipped: the runtime radio config, RxBoost, tx-only/rx-only
+roles and the SF12/BW500 defaults, all of which are behavior changes rather
+than fixes.
+
+## Build break: `trailing semicolon in macro used in expression position`
+
+Current nightly rustc turned `semicolon_in_expressions_from_macros` into a
+deny-by-default future-incompatibility error, and `rprintln!` expands to a
+block ending in a semicolon. Every `rprintln!`/`debug_println!` used as the
+value of a match arm or as the tail expression of a block became a hard
+error, so the tree would not build at all. Fixed by adding the semicolon
+inside the `debug_println!` macro and braces around the affected match arms.
+
