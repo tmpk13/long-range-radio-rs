@@ -595,9 +595,15 @@ impl SdCard {
         result
     }
 
+    /// Wait for the card to release its busy signal.
+    ///
+    /// Feeds the watchdog: a failing card spends the full timeout here on
+    /// every block, and a log flush writes several blocks between two of the
+    /// main loop's feeds. The deadline is what keeps this honest.
     fn wait_not_busy(&mut self, timeout_ms: u32) -> Result<(), SdError> {
         let start = crate::platform::millis();
         loop {
+            crate::watchdog::feed_now();
             if self.xfer(0xFF)? == 0xFF {
                 return Ok(());
             }
@@ -664,6 +670,7 @@ impl SdCard {
             let hcs = if v2 { 0x4000_0000 } else { 0 };
             let start = crate::platform::millis();
             loop {
+                crate::watchdog::feed_now();
                 sd.cmd(55, 0)?;
                 if sd.cmd(41, hcs)? == 0x00 {
                     break;

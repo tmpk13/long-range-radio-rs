@@ -394,9 +394,15 @@ mod app {
             .text_color(BinaryColor::On)
             .build();
 
-        // Stagger first TX by address so nodes don't collide on boot
+        // Stagger first TX by address so nodes don't collide on boot.
+        //
+        // Folded into eight slots rather than scaled by the whole address:
+        // node 200 otherwise sat silent for ten minutes after boot with
+        // nothing on the console to say why. A second apart is already wide
+        // against a packet's air time, and the post-transmit jitter keeps
+        // nodes apart from there.
         let tx_interval = 4_000_u32.millis();
-        let mut next_tx = Mono::now() + (THIS_ADDRESS as u32 * 3_000).millis();
+        let mut next_tx = Mono::now() + ((THIS_ADDRESS as u32 % 8) * 1_000).millis();
         let mut tx_count: u32 = 0;
         let mut rx_count: u32 = 0;
 
@@ -432,6 +438,13 @@ mod app {
             // Retry display connection if not detected.
             // Skip all I2C during OTA — a stuck bus could trigger a watchdog
             // reset and lose the in-progress transfer.
+            //
+            // Checked before that gate, so a sender that vanished mid-upload
+            // releases the node instead of holding it off the air until it is
+            // power-cycled.
+            if ota.expire() {
+                rprintln!("OTA transfer abandoned (sender went silent)");
+            }
             let ota_active = ota.is_active();
             if !ota_active && !*display_ok && Mono::now() >= next_display_retry {
                 watchdog::feed(iwdg);

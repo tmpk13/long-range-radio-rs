@@ -28,6 +28,12 @@ const DFU_PAGE_START: u8 = 64;
 /// Maximum firmware size (ACTIVE partition = 112 KB = 56 pages).
 const MAX_FW_SIZE: u32 = 56 * PAGE_SIZE;
 
+/// Silence after which an in-progress transfer is abandoned (ms).
+///
+/// Sized well above the gap between chunks at the slowest preset, where a
+/// single packet is ~6.6 s on the air.
+const TRANSFER_IDLE_TIMEOUT_MS: u32 = 60_000;
+
 // ── Page buffer (static to avoid stack overflow) ────────────────────────────
 
 const PAGE_BUF_SIZE: usize = PAGE_SIZE as usize;
@@ -47,6 +53,8 @@ struct Receiving {
     current_page: u16,
     /// Byte offset within the page buffer.
     page_offset: u16,
+    /// `platform::millis()` of the last frame accepted for this transfer.
+    last_ms: u32,
 }
 
 enum State {
@@ -136,6 +144,7 @@ impl OtaReceiver {
             next_chunk: 0,
             current_page: 0,
             page_offset: 0,
+            last_ms: crate::platform::millis(),
         });
 
         let mut buf = [0u8; 32];
@@ -156,6 +165,13 @@ impl OtaReceiver {
         };
 
         let chunk = OtaChunk::deserialize(payload)?;
+
+        // Stamped before the duplicate and out-of-order returns below: a
+        // sender that is retrying is still there, and only silence should
+        // let [`OtaReceiver::expire`] drop the transfer.
+        if let State::Active(rx) = &mut self.state {
+            rx.last_ms = crate::platform::millis();
+        }
 
         // Duplicate or old chunk — re-ACK.
         if chunk.index < next_chunk {
@@ -295,6 +311,28 @@ impl OtaReceiver {
     /// Whether the receiver is currently in a transfer.
     pub fn is_active(&self) -> bool {
         matches!(self.state, State::Active(_))
+    }
+
+    /// Drop a transfer that has gone silent, returning `true` if one was
+    /// dropped.
+    ///
+    /// An active transfer makes the node answer every new [`msg::OTA_OFFER`]
+    /// with [`reason::BUSY`], and only an explicit [`msg::OTA_ABORT`] cleared
+    /// it.  A sender that *crashes* mid-upload never sends one, so the node
+    /// stayed unupdatable until it was power-cycled.  The window is far
+    /// longer than any legitimate gap between chunks, which at the slowest
+    /// preset are several seconds apart.
+    pub fn expire(&mut self) -> bool {
+        let last_ms = match &self.state {
+            State::Active(rx) => rx.last_ms,
+            State::Idle => return false,
+        };
+        if crate::platform::millis().wrapping_sub(last_ms) > TRANSFER_IDLE_TIMEOUT_MS {
+            self.reset();
+            true
+        } else {
+            false
+        }
     }
 
     fn reset(&mut self) {

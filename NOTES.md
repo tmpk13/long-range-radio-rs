@@ -935,3 +935,84 @@ value of a match arm or as the tail expression of a block became a hard
 error, so the tree would not build at all. Fixed by adding the semicolon
 inside the `debug_println!` macro and braces around the affected match arms.
 
+
+## Second sweep ported from esp32c6-gps: five of nine
+
+The derivative did a whole-system bug sweep. Four of its nine findings have
+no counterpart here - this repo has no RADIO.CFG (config is `option_env!`
+constants), its GPS is RX-only and never sleeps, there is no ESP companion
+holding sleep flags, and there is no CFG_END opcode. The rest applied, in
+two cases worse than upstream.
+
+### The watchdog was shorter than the radio's own TX deadline
+
+`watchdog::start(&iwdg, 5_000)` against a `TX_POLL_TIMEOUT_MS` that scales
+with the preset:
+
+| Preset | poll deadline | vs 5 s watchdog |
+|-|-|-|
+| fast | 150 ms | safe |
+| long | 1000 ms | safe |
+| max | 4000 ms | inside LSI tolerance |
+| extreme | 7500 ms | resets before the poll gives up |
+
+`send()` blocks in that loop, so on `extreme` a transmit that never
+completes resets the board rather than returning `Timeout`, and on `max` the
+margin is inside the STM32WL's own LSI spread (at the 47 kHz end the real
+timeout is ~4.7 s, not 5). Upstream hit the same thing against a 6 s
+watchdog.
+
+Rather than stretch the timeout, which would blunt it everywhere, the
+bounded waits feed themselves through the new `watchdog::feed_now` - a raw
+write of the reload key, safe from anywhere because the key register is
+write-only and the reload is idempotent. It says "still waiting on something
+that will time out", not "trust me". Three callers: the radio TX poll, the
+SD `wait_not_busy` (500 ms per block, and a log flush writes several between
+two of the main loop's feeds), and the ACMD41 loop in card init (1 s).
+
+`wait_on_busy` in the radio driver is deliberately *not* fed - it has no
+deadline of its own, and a radio that never releases BUSY is exactly what
+the watchdog is for. `read_block`'s data-token wait is also left alone: at
+200 ms it cannot overrun, and every feed is a place the watchdog is
+suppressed.
+
+### An abandoned OTA transfer took the node off the air for good
+
+`handle_offer` answers `reason::BUSY` while a transfer is active, and only
+an explicit `OTA_ABORT` cleared it - so a sender that crashed or walked out
+of range mid-upload left the node refusing every future offer until someone
+power-cycled it. `Receiving` now stamps `last_ms` per frame and
+`OtaReceiver::expire`, called from the main loop, drops the transfer after
+60 s of silence. The stamp happens before the duplicate and out-of-order
+returns, so a sender that is retrying counts as present; only silence
+expires. 60 s is far longer than any legitimate gap, where even a single
+`extreme` packet is ~6.6 s on the air.
+
+Not ported: upstream also made its END opcodes idempotent so a host retry
+re-reports the real error. There is no separate END here - the final chunk
+verifies the CRC and calls `request_swap` - so a lost `COMPLETE` reaches a
+node that is already rebooting into the new firmware. Same caveat upstream
+records for its FW_END half: making that unambiguous needs the sender to
+re-query the version rather than retry, which is a larger protocol change
+than the bug warrants.
+
+### Smaller
+
+- **First-beacon stagger scaled with the whole address**, so node 200 sat
+  silent for ten minutes after boot with nothing on the console to say why
+  (upstream's was 3 min 22 s). Folded into eight slots, `address % 8` times
+  1 s: a second apart is already wide against a packet's air time, and the
+  post-transmit jitter keeps nodes apart from there.
+- **The bootloader read u32s through an unaligned pointer.** `flash_program`
+  did `ptr::read(src as *const u32)`; `copy_page` passes an `align(8)`
+  buffer, but `write_state` passes a bare `[u8; 8]` stack local with
+  alignment 1. UB, and the compiler is free to answer it with an `ldrd`,
+  which faults - in the code that writes the boot state, with no way back.
+  Now assembled with `u32::from_le_bytes`, which costs nothing where LLVM
+  can prove the alignment.
+- **`platform::random` could return below `min`.** `(s as i32)
+  .unsigned_abs()` is 2^31 for exactly one state value, which casts back
+  negative, and `%` keeps the sign of its left operand. One call in 2^32,
+  and the effect was only a repeat jitter that read as already due, but the
+  cast was wrong. Reduced in unsigned space instead.
+

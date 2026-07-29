@@ -601,9 +601,18 @@ impl PacketRadio for Sx1262Driver {
             debug_println!("  send: TX started, chip status = {:?}", status);
         }
 
-        // Poll IRQ for TxDone/Timeout
+        // Poll IRQ for TxDone/Timeout.
+        //
+        // The deadline scales with the preset and reaches 7.5 s on `extreme`
+        // against a 5 s watchdog, so a transmit that never completes resets
+        // the board before the poll can give up - and `max` at 4 s is inside
+        // the LSI tolerance of the same 5 s. Rather than stretch the timeout,
+        // which would blunt it everywhere, the wait feeds the watchdog
+        // itself; it is bounded by TX_POLL_TIMEOUT_MS either way, so this
+        // cannot hide a radio that has stopped answering.
         let start_ms = platform::millis();
         let result = loop {
+            crate::watchdog::feed_now();
             let elapsed = platform::millis().wrapping_sub(start_ms) as u64;
             if elapsed > TX_POLL_TIMEOUT_MS {
                 debug_println!(
