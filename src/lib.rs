@@ -5,7 +5,9 @@
 macro_rules! debug_println {
     ($($arg:tt)*) => {
         if cfg!(feature = "debug") {
-            rtt_target::rprintln!($($arg)*)
+            // Semicolon required: `rprintln!` expands to a block ending in a
+            // trailing semicolon, which is an error in expression position.
+            rtt_target::rprintln!($($arg)*);
         }
     };
 }
