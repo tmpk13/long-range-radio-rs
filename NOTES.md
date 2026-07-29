@@ -922,9 +922,10 @@ Deliberately **not** ported: the derivative moved to the private LoRa sync
 word (0x1424). It is a real improvement - on the public word the receiver
 locks onto every LoRaWAN preamble in earshot - but nodes on different sync
 words cannot hear each other at all, so it is a flag day for the whole
-fleet. Also skipped: the runtime radio config, RxBoost, tx-only/rx-only
-roles and the SF12/BW500 defaults, all of which are behavior changes rather
-than fixes.
+fleet. Also skipped: the runtime radio config, tx-only/rx-only roles and the
+SF12/BW500 defaults, all of which are behavior changes rather than fixes.
+(RxBoost was on that list too; it has since been added deliberately - see
+below.)
 
 ## Build break: `trailing semicolon in macro used in expression position`
 
@@ -934,7 +935,6 @@ block ending in a semicolon. Every `rprintln!`/`debug_println!` used as the
 value of a match arm or as the tail expression of a block became a hard
 error, so the tree would not build at all. Fixed by adding the semicolon
 inside the `debug_println!` macro and braces around the affected match arms.
-
 
 ## Second sweep ported from esp32c6-gps: five of nine
 
@@ -1016,3 +1016,22 @@ than the bug warrants.
   and the effect was only a repeat jitter that read as already due, but the
   cast was wrong. Reduced in unsigned space instead.
 
+## RxBoost via the RX_BOOST build flag
+
+The SX126x RxGain register was never written, so the radio ran at its
+power-up default of power-saving gain. Boosting it is worth ~2 dB of
+sensitivity - about one step of `LORA_PRESET` - for no airtime at all,
+which is the cheapest link budget available here.
+
+Exposed as `RX_BOOST=0|1` alongside `LORA_PRESET` and `ADDRESS` rather than
+as a preset field: it is orthogonal to the modulation, and unlike the
+presets it does not have to match at both ends. Defaults to off to match the
+chip, because the cost is receive current drawn continuously on a node that
+listens most of the time - a real trade on solar, so it is opted into rather
+than inherited. A bool rather than the HAL's four-level `PMode`: only power
+saving and boosted have specified behavior.
+
+Applied inside `init` on every call rather than once, because RxGain is not
+covered by warm-start sleep retention. Moot today - the only path back is a
+full re-init - but it keeps the setting correct if the radio is ever put
+into a retaining sleep.

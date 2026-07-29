@@ -55,6 +55,27 @@ pub const RADIO_PRESET: RadioPreset = match option_env!("LORA_PRESET") {
     },
 };
 
+/// Whether the receiver runs at boosted gain.
+///
+/// The SX126x powers up with the RxGain register selecting power-saving gain;
+/// boosting it buys roughly 2 dB of sensitivity, which is worth about the
+/// same as one step of [`RADIO_PRESET`] but costs no airtime at all. What it
+/// does cost is receive current, continuously, on a node that is listening
+/// most of the time - so on solar or battery it is a trade to opt into rather
+/// than inherit, and the default matches the chip.
+///
+/// Set at compile time via the `RX_BOOST` environment variable, e.g.:
+///   RX_BOOST=1 cargo run --release
+/// Valid values: `0` (default), `1`.
+pub const RX_BOOST: bool = match option_env!("RX_BOOST") {
+    None => false,
+    Some(s) => match s.as_bytes() {
+        b"0" => false,
+        b"1" => true,
+        _ => panic!("RX_BOOST must be 0 or 1"),
+    },
+};
+
 /// Polling loop timeout for TX completion (ms).
 ///
 /// `send()` blocks polling the IRQ register until `TxDone` fires or this

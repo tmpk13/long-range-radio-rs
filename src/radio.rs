@@ -1,6 +1,6 @@
 //! SX1262 radio driver implementing [`PacketRadio`] via the STM32WLE5 SubGHz peripheral.
 
-use crate::config::{RADIO_PRESET, RadioPreset, TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
+use crate::config::{RADIO_PRESET, RX_BOOST, RadioPreset, TX_CHIP_TIMEOUT_MS, TX_POLL_TIMEOUT_MS};
 use crate::platform;
 
 /// A packet-oriented radio interface.
@@ -29,8 +29,9 @@ use stm32wlxx_hal::gpio::{Output, OutputArgs, PinState, Speed, pins};
 use stm32wlxx_hal::spi::{SgMiso, SgMosi};
 use stm32wlxx_hal::subghz::{
     CalibrateImage, CfgIrq, CodingRate, FallbackMode, HeaderType, Irq, LoRaBandwidth,
-    LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PacketType, RampTime,
-    RegMode, RfFreq, SpreadingFactor, StandbyClk, SubGhz, TcxoMode, TcxoTrim, Timeout, TxParams,
+    LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PMode, PacketType,
+    RampTime, RegMode, RfFreq, SpreadingFactor, StandbyClk, SubGhz, TcxoMode, TcxoTrim, Timeout,
+    TxParams,
 };
 
 /// Errors from the SubGHz radio.
@@ -270,6 +271,22 @@ impl Sx1262Driver {
         let clamp = self.read_reg(REG_TX_CLAMP);
         self.write_reg(REG_TX_CLAMP, clamp | 0x1E);
 
+        // Receive-side counterpart to the TX power above. The RxGain register
+        // was never written, so the radio ran at its power-up default of
+        // power-saving gain regardless of preset.
+        //
+        // Written on every entry to this function rather than once, because
+        // RxGain is not covered by warm-start sleep retention - moot while
+        // the only path back is a full re-init, but it keeps the setting
+        // correct if the radio is ever put into a retaining sleep.
+        self.radio
+            .set_rx_gain(if RX_BOOST {
+                PMode::Boost
+            } else {
+                PMode::PowerSaving
+            })
+            .expect("set_rx_gain");
+
         // LoRa modulation: SF / BW / CR selected by the build-time preset.
         // LDRO must be enabled when the symbol duration exceeds 16.38 ms
         // (SF11/SF12 at BW125, SF12 at BW62.5), otherwise the link is
@@ -355,6 +372,7 @@ impl Sx1262Driver {
         // Over-current protection
         self.radio.set_pa_ocp(Ocp::Max140m).ok();
         debug_println!("LoRa preset: {}", RADIO_PRESET.name());
+        debug_println!("RX boost: {}", if RX_BOOST { "on" } else { "off" });
         debug_println!("SubGHz init complete.");
     }
 
