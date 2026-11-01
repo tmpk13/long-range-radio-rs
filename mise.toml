@@ -1,0 +1,37 @@
+[tasks.build]
+description = "Build the app, bootloader and basestation firmware (release) without flashing"
+# One cargo call per package: a single --workspace build unifies cortex-m-rt
+# features across members and the bootloader then fails to link (no device.x).
+run = [
+    "cargo build --release",
+    "cargo build --release -p bootloader",
+    "cargo build --release -p basestation",
+]
+
+[tasks.bootloader]
+description = "Flash the bootloader through probe-rs; once per board, no RTT output, Ctrl-C once flashed"
+run = "cargo run --release -p bootloader"
+
+[tasks.flash]
+description = "Build, flash and attach RTT to a mesh node; ADDRESS, LORA_PRESET, FW_VERSION and RX_BOOST come from the environment, extra args go to cargo"
+run = "cargo run --release"
+
+[tasks.attach]
+description = "Attach probe-rs RTT to a running mesh node"
+run = "probe-rs attach --chip STM32WLE5JCIx --rtt-scan-memory target/thumbv7em-none-eabi/release/sx1262-mesh-rs"
+
+[tasks.basestation]
+description = "Build, flash and attach RTT to the basestation node; set ADDRESS (e.g. 10)"
+run = "cargo run --release -p basestation"
+
+[tasks.ota-upload]
+description = "Upload a firmware image to a node through the basestation (args: -p PORT -t TARGET -v VERSION FILE)"
+run = "python3 basestation/host/ota_upload.py"
+
+[tasks.data-relay]
+description = "Relay mesh data from the basestation as JSON lines (args: -p PORT)"
+run = "python3 basestation/host/data_relay.py"
+
+[tasks.unlock]
+description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe; hold NRST low as notes/build-flash.md describes"
+run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
