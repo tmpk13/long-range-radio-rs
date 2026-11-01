@@ -283,6 +283,79 @@ The driver manages RX/TX state — entering continuous RX on the first poll,
 transitioning to standby before TX, then polling the IRQ register for
 `TxDone` or `Timeout` rather than blocking on the DIO1 pin.
 
+Everything below hangs off the single priority-1 RTIC task in
+`bin/main.rs`; the cfg-gated blocks are cargo features. That single
+priority is what makes `SharedI2c`'s `RefCell` sound.
+
+```mermaid
+classDiagram
+    class RunTask {
+        <<RTIC priority 1>>
+        loop()
+    }
+    class MeshNode
+    class LoraIo~R~
+    class Sx1262Driver {
+        <<PacketRadio>>
+        SubGHz SPI3
+    }
+    class OtaReceiver
+    class SharedI2c~T~ {
+        <<&'static RefCell~I2c2~>>
+        PB15 SCL / PA15 SDA
+    }
+    class Ssd1306
+    class Sensors~I2C~ {
+        found: Found
+        read() Readings
+    }
+    class Board {
+        <<feature board>>
+        senses, mppt, sd, leds
+    }
+    class Rs422 {
+        <<feature rs422>>
+        USART2 Modbus RTU
+    }
+    class GpsRadioLog {
+        <<feature gps-radio-log>>
+        USART1 NMEA
+    }
+
+    RunTask --> MeshNode
+    RunTask --> OtaReceiver
+    RunTask --> Board
+    RunTask --> Rs422 : SEN0600 soil
+    RunTask --> GpsRadioLog
+    MeshNode --> LoraIo
+    LoraIo --> Sx1262Driver
+    RunTask --> SharedI2c
+    SharedI2c --> Ssd1306
+    SharedI2c --> Sensors
+    Sensors ..> BME680
+    Sensors ..> BMP280
+    Sensors ..> SHT45
+    Sensors ..> MCP9808
+    Sensors ..> SCD41
+    Sensors ..> ADXL345
+    Sensors ..> AS3935
+    Sensors ..> SEN0575
+    Sensors ..> BMV080
+
+    class BME680 { 0x76/0x77 }
+    class BMP280 { 0x76/0x77 }
+    class SHT45 { 0x44 }
+    class MCP9808 { 0x18..0x1F }
+    class SCD41 { 0x62 }
+    class ADXL345 { 0x53/0x1D }
+    class AS3935 { 0x03..0x01 }
+    class SEN0575 { 0x1D rain }
+    class BMV080 { 0x57/0x56 }
+```
+
+The 0x1D three-way conflict between ADXL345, MCP9808 and SEN0575 is
+resolved in probe order — see the SEN0575 section.
+
 ## stm32wlxx-hal SubGhz API Reference (v0.6.1)
 
 ### Feature Flags for STM32WLE5JC
@@ -1035,3 +1108,48 @@ Applied inside `init` on every call rather than once, because RxGain is not
 covered by warm-start sleep retention. Moot today - the only path back is a
 full re-init - but it keeps the setting correct if the radio is ever put
 into a retaining sleep.
+
+## SEN0575 rain gauge on the sensor bus (`sensor` feature)
+
+DFRobot's tipping-bucket gauge. The part is an I2C slave implemented in
+firmware on a CS32L010, not a fixed-function sensor, which drives most
+of the choices below. Register map (I2C, little-endian throughout):
+0x00 PID+VID (4 B), 0x0A version, 0x0C windowed rainfall (4 B), 0x10
+cumulative rainfall (4 B), 0x14 raw bucket tips (4 B), 0x18 uptime in
+minutes (2 B), 0x26 window length in hours (write, 1 B), 0x28 mm per
+tip x10000 (write, 2 B). Both rainfall registers count ten-thousandths
+of a mm, so `mm_x100 = raw / 100` for the repo's centi-unit convention.
+
+Presence check is the PID/VID pair rather than a chip-id byte: reading
+4 B from 0x00 yields `C0 00 43 73`, unpacked as an 18-bit PID whose top
+two bits ride in the spare bits of the VID's high byte (PID 0x100C0,
+VID 0x3343).
+
+Address conflict. The gauge is hard-wired to 0x1D, which is both the
+ADXL345's alternate address and inside the MCP9808's strapped 0x18..0x1F
+range - three drivers, one address, and the gauge cannot be moved. The
+probe now runs the gauge first and the other two skip 0x1D once it is
+found: a 32-bit PID/VID match is a much stronger claim on an address
+than the ADXL's one-byte DEVID compare or the MCP's id-pair read, so
+whichever part is actually fitted wins. An ADXL and a gauge still
+cannot share a bus - nothing can fix that, it is the hardware.
+
+Reads use a write-then-read with a STOP between, not a combined
+`write_read` repeated start, matching what the vendor driver exercises.
+Repeated start probably works, but a firmware I2C slave is exactly the
+place where "probably" is not worth spending, and the two-transaction
+form costs nothing here.
+
+The 1 hour window register is written once at probe instead of before
+every read (the vendor driver rewrites it each call). It is retained,
+and every write to this device needs a ~100 ms save during which it
+ignores the bus - so rewriting it per sweep would put 100 ms of blocking
+delay into all of them for a value that never changes.
+
+Telemetry key is `R` = windowed rainfall in hundredths of a mm, joining
+T/H/C/M. Worst case the line is now over budget: `T=-4000 H=10000
+C=40000 R=10000 M=1000` is 37 B against the 32 B payload, so a node
+carrying every sensor at once would drop `M`. Left as is - `TelemetryLine`
+already drops whole fields rather than truncating, and a node with a rain
+gauge, a CO2 sensor and a soil probe on it is not a configuration that
+exists. Worth revisiting if it ever does.
