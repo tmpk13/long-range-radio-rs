@@ -19,7 +19,8 @@ USB-C port into a serial port and a CMSIS-DAP probe for the Wio-E5.
 - `mise run ch572-boot`: restart the CH572D into its USB bootloader (`PORT=/dev/ttyACMn` if not ttyACM0)
 - `mise run build`: build the app, bootloader, basestation and CH572D firmware without flashing
 
-`mise tasks` lists the rest. Design notes: NOTES.md. Components: ARCHITECTURE.md.
+`mise tasks` lists the rest. First-time board setup: notes/ch572.md (First bring-up).
+Design notes: NOTES.md. Components: ARCHITECTURE.md.
 Hardware reference: docs/hardware.md.
 
 *Claude Code was utilized in the development process.*

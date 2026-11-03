@@ -10,4 +10,4 @@ One topic per file. Read this index, then only the files the task touches.
 - `notes/board.md`: the board feature on the Forest Sensor Platform V1: what changed from the old charger board, sense scaling, buck drive, the MPPT controller, the activity LED and switched 5 V rail, RS-485 direction control.
 - `notes/gpslog.md`: the gps-radio-log feature and its status line (sats, last RX RSSI, time since RX).
 - `notes/audits.md`: radio fixes and the second bug sweep ported back from the esp32c6-gps derivative.
-- `notes/ch572.md`: the CH572D USB bridge firmware in `ch572/`: build layout, clock and flash timing, the USB driver's pitfalls, CMSIS-DAP, flashing and getting back into the bootloader, board issues, first bring-up checks.
+- `notes/ch572.md`: the CH572D USB bridge firmware in `ch572/`: build layout, clock and flash timing, the USB driver's pitfalls, CMSIS-DAP, flashing and getting back into the bootloader, board issues, first bring-up: the 3.3 V power check with expected current, setup commands from blank chips to a running node.

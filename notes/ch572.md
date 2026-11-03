@@ -117,9 +117,9 @@ RB_UIF_TRANSFER is cleared. Handling follows WCH's CH572 COM example:
 - USB 1209:0001 is the pid.codes test ID, fine on the bench but not for
   boards that leave it. `BRIDGE_SERIAL=<name> mise run ch572-flash` sets
   the serial number to tell boards apart (default FSP-1).
-- probe-rs's udev rules do not cover that ID. Non-root access needs e.g.
-  `SUBSYSTEM=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001",
-  MODE="0660", TAG+="uaccess"` in /etc/udev/rules.d.
+- probe-rs's udev rules cover neither that ID nor the WCH ROM
+  bootloader's (4348:55e0, 1a86:55e0). `mise run udev` installs
+  `ch572/70-fsp-ch572.rules`, which covers all three.
 - Flashing is over USB through the ROM bootloader with wchisp. CH570/CH572
   support is only on wchisp's main branch (added 2025-12, after 0.3.0), so
   mise.toml pins a commit. A blank chip starts in the bootloader. wlink
@@ -160,17 +160,39 @@ fixed (pad 21 is on GND):
 - M5: U7 can put the boost onto VBUS. The firmware holds USB_VOUT_EN (PA4)
   low and never sets it.
 
-## First bring-up checks
+## First bring-up
 
 None of this has run on hardware. In order:
 
-1. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
+1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
+   attached, SD slot empty. Expect about 3-8 mA, 11 mA at datasheet
+   maxima; much more points at a short or a misplaced part.
+   - Wio-E5 awake with its radio off, 1-6 mA (DS13105 run current at
+     4-48 MHz). Blank, it sits in ST's ROM bootloader (RM0461 empty
+     check). The factory image goes to Seeed's upgrade mode instead of
+     the AT firmware: PB13 is its boot pin and reads low through the solar
+     divider without a panel.
+   - U6 with its receiver on from the R36/R37 pulldowns: 1.0 mA, 2.2 max.
+     U1: 0.26 mA max.
+   - The unpowered CH572D leaks in through R29, R23/D10, R24/D11 and
+     SWDIO: 0.6 mA at most, set by those resistors. D10/D11 may glow.
+   - U10 is fed backwards and draws its ~30 uA ground current. Output
+     above input is outside TI's absolute maximum (VOUT <= VIN + 0.3 V),
+     harmless at that current, but use USB-C after this check.
+   - WIO-RST (J2 pin 5) should read near 3.3 V. Much lower means the dead
+     CH572D clamps it (H3) and holds the Wio-E5 in reset.
+2. `mise install` (builds wchisp) and `mise run udev`.
+3. USB-C in. A blank CH572D starts in its bootloader: `lsusb` shows
+   4348:55e0 or 1a86:55e0. `mise run ch572-flash`.
+4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
-2. `probe-rs list` shows the probe; `probe-rs info --chip STM32WLE5JCIx`
-   reads the Wio-E5 (RM0461 gives DPIDR 0x5BA02477).
-3. `mise run flash` (probe-rs through the bridge) and RTT via `mise run
-   attach`.
-4. Serial: the basestation built with `board`, `mise run data-relay -p
+5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
+   (RDP 1); `mise run unlock` erases it (notes/build-flash.md; SW1 is the
+   NRST button if reset needs holding). Then `probe-rs info --chip
+   STM32WLE5JCIx` reads it (RM0461 gives DPIDR 0x5BA02477).
+6. `mise run bootloader`, `ADDRESS=2 mise run flash --features board`,
+   and RTT via `mise run attach`.
+7. Serial: the basestation built with `board`, `mise run data-relay -p
    /dev/ttyACM0`.
-5. `mise run ch572-boot`, then `lsusb` for the WCH ISP device (4348:55e0
-   or 1a86:55e0) and `wchisp info`.
+8. `mise run ch572-boot`, then `lsusb` for the WCH ISP device and
+   `wchisp info`.

@@ -1,0 +1,11 @@
+# Non-root USB access to the Forest Sensor Platform's CH572D, installed by
+# `mise run udev`.  The number must stay below 73: logind applies the
+# uaccess tag in 73-seat-late.rules.
+
+# WCH ROM bootloader (both vendor IDs it enumerates with), used by wchisp.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="4348", ATTRS{idProduct}=="55e0", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55e0", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# The bridge firmware: CDC-ACM serial port plus CMSIS-DAP probe, on the
+# pid.codes test ID.
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="0001", MODE="0660", GROUP="plugdev", TAG+="uaccess"

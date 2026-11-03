@@ -57,3 +57,11 @@ run = 'stty -F "${PORT:-/dev/ttyACM0}" 1200'
 description = "Run the CH572D firmware's host tests: USB driver, SWD and bridge against simulated hardware"
 dir = "ch572"
 run = 'cargo test --lib --target "$(rustc -vV | sed -n "s/^host: //p")"'
+
+[tasks.udev]
+description = "Install udev rules for the CH572D's ROM bootloader and USB bridge; runs sudo, once per machine"
+run = [
+    "sudo install -m 644 ch572/70-fsp-ch572.rules /etc/udev/rules.d/",
+    "sudo udevadm control --reload-rules",
+    "sudo udevadm trigger",
+]
