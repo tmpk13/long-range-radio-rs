@@ -12,6 +12,12 @@ macro_rules! debug_println {
     };
 }
 
+// Both features need USART1: on the Forest Sensor Platform its pins go to
+// the RS-485 transceiver, which `rs422` drives and `gps-radio-log` only
+// listens through.
+#[cfg(all(feature = "rs422", feature = "gps-radio-log"))]
+compile_error!("features `rs422` and `gps-radio-log` both use USART1; enable one of them");
+
 #[cfg(feature = "board")]
 pub mod board;
 pub mod boot_state;

@@ -33,11 +33,11 @@ classDiagram
     }
     class Board {
         <<feature board>>
-        senses, mppt, sd, leds
+        senses, buck, mppt, sd, led, rail_5v
     }
     class Rs422 {
         <<feature rs422>>
-        USART2 Modbus RTU
+        USART1 Modbus RTU, DE/RE
     }
     class GpsRadioLog {
         <<feature gps-radio-log>>
@@ -80,13 +80,18 @@ resolved in probe order — see the SEN0575 section.
 
 ## Pin allocation
 
+Wio-E5 on the Forest Sensor Platform V1 board (`board` feature). Pin
+numbers are module pads.
+
 | Function | Pins | Notes |
 |----------|------|-------|
-| SWD      | PA13 (SWDIO), PA14 (SWCLK) | Pins 3-4, dedicated |
-| I2C2     | PB15 (SCL), PA15 (SDA) | Pins 5-6 |
-| UART1    | PB6 (TX), PB7 (RX) | Pins 9-10, gateway serial to Linux box |
-| SPI2     | PB13 (SCK), PB14 (MISO), PA10 (MOSI), PB9 (NSS) | Pins 24-27, note PB13 is also boot pin |
-| GPIO     | PB4, PB3 | Pins 7-8 |
+| SWD      | PA13 (SWDIO), PA14 (SWCLK), RST | Pads 3, 4, 17; shared by the CH572D (CMSIS-DAP) and the J2 header |
+| I2C2     | PB15 (SCL), PA15 (SDA) | Pads 5-6, J8 and J10, 4.7k pull-ups |
+| SD card  | PB3 (SCK), PB4 (MISO), PB5 (MOSI), PA0 (CS) | SPI1; no card-detect line |
+| RS-485   | PB6 (TX), PB7 (RX), PA9 (DE), PB9 (/RE) | USART1 to the TPT482, `rs422` feature |
+| Host link | PA2 (TX), PA3 (RX) | USART2 to the CH572D USB bridge; the basestation's link with `board` |
+| Senses   | PB13 (VIN), PA10 (VBAT), PB14 (IBAT) | ADC_IN0/6/1, see `src/board.rs` for scaling |
+| Buck PWM | PB10 | TIM2_CH3, high = switch on |
+| 5V_EN    | PC0 | Switched 5 V rail (J7 sensor supply, CH572D) |
+| LED      | PC1 | D12, active low |
 | RF switch | PA4 (control 1), PA5 (control 2) | Module-internal, not on a pad |
-
-*SPI SCK must remain inactive for boot*

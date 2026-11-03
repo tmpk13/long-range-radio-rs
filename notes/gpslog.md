@@ -2,10 +2,13 @@
 
 ## GPS + radio link logger (gps-radio-log feature)
 
-GPS goes on USART1 (PB7 RX at 9600 8N1, AF7) - the only free UART:
-USART2 is the RS-422 bus and LPUART1's PC0/PC1 pins are the activity
-LEDs. RX-only; PB6 (USART1 TX) is left free until a module needs
-configuring. The GPS is kept powered and active permanently (power
+GPS goes on USART1 (PB7 RX at 9600 8N1, AF7). RX-only; PB6 (USART1
+TX) is left free until a module needs configuring. On the Forest Sensor
+Platform PB7 is wired only to the RS-485 receiver output (USART2 goes
+to the CH572D, PC0/PC1 are 5V_EN and the LED), so NMEA has to arrive
+over the J7 bus from an RS-422/485 talker; the receiver stays enabled
+because R37 holds /RE low. For the same reason the feature cannot be
+combined with `rs422`. The GPS is kept powered and active permanently (power
 budget accepted for this feature), so no PMTK/UBX standby commands.
 The feature implies `board` (SD card) and `nb` (UART reads).
 

@@ -1,30 +1,35 @@
-//! Support for the MPPT buck NiMH charger board (`board` cargo feature).
+//! Support for the Forest Sensor Platform V1 board (`board` cargo feature).
 //!
-//! Pin assignments (from the `buck-converter-real` schematic):
+//! Pin assignments (from the `Forest-Sensor-Platform` KiCad project, V1):
 //!
-//! | Pin  | Peripheral | Net         | Function                                  |
-//! |------|------------|-------------|-------------------------------------------|
-//! | PB14 | ADC_IN1    | VSENSE_VIN  | Solar input, 10k:1.5k divider             |
-//! | PB13 | ADC_IN0    | VSENSE_VOUT | Battery (+BATT), 10k:10k divider          |
-//! | PA10 | ADC_IN6    | BAT_ISENSE  | 50 mOhm low-side shunt in battery return  |
-//! | PA9  | TIM1_CH2   | PWM_HI      | LM5109B HI input (high-side buck switch)  |
-//! | PB3  | SPI1_SCK   | SPI-SCK     | SD card CLK                               |
-//! | PB4  | SPI1_MISO  | SPI-CITO    | SD card DAT0                              |
-//! | PB5  | SPI1_MOSI  | SPI-COTI    | SD card CMD                               |
-//! | PA0  | GPIO out   | SPI-CS      | SD card chip select (CD/DAT3)             |
-//! | PB9  | GPIO in    | GPIO-9      | SD card detect switch (low = inserted)    |
-//! | PC0  | GPIO out   | LED1        | radio TX activity LED (active high)       |
-//! | PC1  | GPIO out   | LED2        | radio RX activity LED (active high)       |
+//! | Pin  | Peripheral | Net         | Function                                    |
+//! |------|------------|-------------|---------------------------------------------|
+//! | PB13 | ADC_IN0    | VSENSE_VIN  | Solar panel input, 100k:10k divider         |
+//! | PA10 | ADC_IN6    | VSENSE_OUT  | Battery (Battery_Out), 10k:10k divider      |
+//! | PB14 | ADC_IN1    | BAT_ISENSE  | INA181A1 across the 50 mOhm battery shunt   |
+//! | PB10 | TIM2_CH3   | PWM_Buck    | Buck switch drive, high = switch on         |
+//! | PB3  | SPI1_SCK   | SPI-SCK     | SD card CLK                                 |
+//! | PB4  | SPI1_MISO  | SPI-CITO    | SD card DAT0                                |
+//! | PB5  | SPI1_MOSI  | SPI-COTI    | SD card CMD                                 |
+//! | PA0  | GPIO out   | SPI-CS      | SD card chip select (CD/DAT3)               |
+//! | PC0  | GPIO out   | 5V_EN       | Switched 5 V rail enable                    |
+//! | PC1  | GPIO out   | WIO_USR_LED | D12 radio activity LED (active low)         |
 //!
-//! The LM5109B LI input is grounded: the buck is non-synchronous with an
-//! SS56 freewheel diode, so only the high-side PWM is driven.
+//! Each analog input sits behind a 1k / 100 nF RC filter (R38-R40 with
+//! C16, C19, C21).  The buck is non-synchronous: a high-side PMOS (Q2)
+//! with an SK56A freewheel diode, so only the one PWM output is driven.
+//!
+//! The rest of the module's pins belong to other parts of the board:
+//! USART1 plus PA9/PB9 drive the RS-485 transceiver (`rs422` feature),
+//! USART2 (PA2/PA3) runs to the CH572D USB bridge, and SWD plus RST are
+//! shared between the CH572D and the J2 debug header.
 
 use crate::platform::SYSCLK_HZ;
 use cortex_m::interrupt::CriticalSection;
 use stm32wlxx_hal::{
     adc::{self, Adc, OversampleRatio, OversampleShift},
     embedded_hal::blocking::delay::DelayUs,
-    gpio::{pins, Analog, Input, Output, OutputArgs, PinState, Pull},
+    gpio::{pins, Analog, Output, OutputArgs, PinState},
     pac,
     spi::{BaudRate, Spi, Transfer, Write, MODE_0},
 };
@@ -34,25 +39,29 @@ pub mod charge {
     /// Battery voltage ceiling (mV): 3S NiMH at ~1.4 V/cell, matching the
     /// board's "3V6-4V2" output rating.  Above this the charger limits.
     pub const VBAT_MAX_MV: u32 = 4200;
-    /// Charge current ceiling (mA) — 0.5C for a 2000 mAh pack.
+    /// Charge current ceiling (mA): the buck's 1 A design point, where the
+    /// 33 uH inductor still has 1.6x margin below saturation.
     pub const IBAT_MAX_MA: u32 = 1000;
     /// The non-synchronous buck needs the input above the battery by at
-    /// least this much (dropout + SS56 diode) before charging is useful.
+    /// least this much (dropout + SK56A diode) before charging is useful.
     pub const VIN_MARGIN_MV: u32 = 1000;
     /// Extra input headroom required before leaving [`ChargeState::Idle`],
     /// so a marginal panel does not flap between states.
     pub const VIN_HYST_MV: u32 = 500;
     /// Perturb & observe period (ms).
     pub const MPPT_PERIOD_MS: u32 = 200;
-    /// P&O duty perturbation (permille) — about two TIM1 counts.
+    /// P&O duty perturbation (permille): about two TIM2 counts.  The
+    /// buck reaches 1 A near 150 permille from a 24 V panel, so one step
+    /// moves the charge current by roughly 0.2 A at that point.
     pub const DUTY_STEP_PM: u32 = 13;
     /// Backoff step while a voltage/current limit is active (permille).
     pub const LIMIT_STEP_PM: u32 = 26;
     /// Power changes below this (mW) are treated as noise and do not
     /// reverse the perturb direction.
     pub const POWER_HYST_MW: u32 = 40;
-    /// ADC sweeps averaged per MPPT step to tame shunt quantization
-    /// (1 LSB across the 50 mOhm shunt is ~16 mA).
+    /// ADC sweeps averaged per MPPT step.  The current amplifier resolves
+    /// ~0.8 mA per LSB, so this mostly averages out the switching ripple
+    /// that gets past the 1k / 100 nF input filters.
     pub const AVG_SAMPLES: u32 = 4;
 }
 
@@ -69,7 +78,7 @@ impl DelayUs<u8> for CycleDelay {
 ///
 /// Must be called before the SysTick monotonic is started and before any
 /// clock-derived peripheral setup (I2C timing, SubGHz SPI baud rate).
-/// 16 MHz keeps zero flash wait states while giving TIM1 160 duty steps
+/// 16 MHz keeps zero flash wait states while giving TIM2 160 duty steps
 /// at the 100 kHz buck switching frequency.
 pub fn raise_sysclk(rcc: &mut pac::RCC) {
     rcc.cr
@@ -84,7 +93,8 @@ pub struct Telemetry {
     pub vin_mv: u32,
     /// Battery voltage (mV).
     pub vbat_mv: u32,
-    /// Battery charge current (mA), measured across the low-side shunt.
+    /// Battery charge current (mA).  The amplifier's reference is
+    /// grounded, so it reads 0 while the battery is discharging.
     pub ibat_ma: u32,
 }
 
@@ -144,37 +154,41 @@ impl Telemetry {
     }
 }
 
-/// ADC readings of the input divider, battery divider and current shunt.
+/// ADC readings of the panel divider, battery divider and current amplifier.
+///
+/// The battery current comes from U1, an INA181A1 (gain 20 V/V) across
+/// the 50 mOhm shunt R1 between Battery_Out and the pack, so the pin sees
+/// 1 V per amp of charge current.
 pub struct Senses {
     adc: Adc,
-    vin: Analog<pins::B14>,
-    vout: Analog<pins::B13>,
-    ishunt: Analog<pins::A10>,
+    vin: Analog<pins::B13>,
+    vbat: Analog<pins::A10>,
+    ibat: Analog<pins::B14>,
 }
 
 impl Senses {
     pub fn new(
         adc: pac::ADC,
-        b14: pins::B14,
         b13: pins::B13,
         a10: pins::A10,
+        b14: pins::B14,
         rcc: &mut pac::RCC,
         cs: &CriticalSection,
     ) -> Self {
         let mut adc = Adc::new(adc, adc::Clk::PClkDiv4, rcc);
         adc.calibrate(&mut CycleDelay);
-        // 10k source impedance on the dividers needs the longest sample time.
+        // Up to ~10k of divider impedance needs the longest sample time.
         adc.set_max_sample_time();
         // 16x hardware oversampling (result stays 12-bit) knocks a couple
-        // of bits of noise off the shunt reading.
+        // of bits of noise off every channel.
         adc.enable_oversampling(OversampleRatio::Mul16, OversampleShift::Shift4);
         adc.enable();
         adc.enable_vref();
         Self {
             adc,
-            vin: Analog::new(b14, cs),
-            vout: Analog::new(b13, cs),
-            ishunt: Analog::new(a10, cs),
+            vin: Analog::new(b13, cs),
+            vbat: Analog::new(a10, cs),
+            ibat: Analog::new(b14, cs),
         }
     }
 
@@ -204,74 +218,80 @@ impl Senses {
         let mv = |raw: u16| raw as u32 * vdda_mv / 4095;
 
         let vin_pin = mv(self.adc.pin(&self.vin));
-        let vout_pin = mv(self.adc.pin(&self.vout));
-        let shunt_pin = mv(self.adc.pin(&self.ishunt));
+        let vbat_pin = mv(self.adc.pin(&self.vbat));
+        let ibat_pin = mv(self.adc.pin(&self.ibat));
 
         Telemetry {
-            // 10k over 1.5k: Vin = Vpin * 11.5k / 1.5k
-            vin_mv: vin_pin * 23 / 3,
+            // 100k over 10k: Vin = Vpin * 110k / 10k.  Full scale is ~36 V.
+            vin_mv: vin_pin * 11,
             // 10k over 10k
-            vbat_mv: vout_pin * 2,
-            // 50 mOhm shunt: 1 mV = 20 mA
-            ibat_ma: shunt_pin * 20,
+            vbat_mv: vbat_pin * 2,
+            // 50 mOhm x 20 V/V = 1 V/A: 1 mV at the pin is 1 mA
+            ibat_ma: ibat_pin,
         }
     }
 }
 
-/// Buck converter PWM output: TIM1 channel 2 on PA9 (net PWM_HI).
+/// Buck converter PWM output: TIM2 channel 3 on PB10 (net PWM_Buck).
+///
+/// PWM_Buck drives the gate of Q3 (BSS123), which pulls the bases of the
+/// Q1 push-pull low; Q1 then pulls the gate of the Q2 high-side PMOS down
+/// to the D1 zener rail 12 V below the panel, turning the switch on.  So
+/// a high output means switch on.  R55 (100k) holds Q3 off, and the
+/// switch open, from reset until the timer takes the pin.
 pub struct Buck {
-    tim1: pac::TIM1,
-    _pin: pins::A9,
+    tim2: pac::TIM2,
+    _pin: pins::B10,
 }
 
 impl Buck {
     /// Switching frequency (matches the SPICE-validated design point).
     pub const PWM_HZ: u32 = 100_000;
     const ARR: u32 = SYSCLK_HZ / Self::PWM_HZ - 1;
-    /// Duty ceiling: the LM5109B bootstrap capacitor only recharges while
-    /// the switch node is low, so never run flat-out.
-    pub const MAX_DUTY_PERMILLE: u32 = 950;
+    /// Duty ceiling.  The PMOS gate drive needs no bootstrap capacitor, so
+    /// the switch may stay on for whole periods.
+    pub const MAX_DUTY_PERMILLE: u32 = 1000;
 
-    pub fn new(tim1: pac::TIM1, a9: pins::A9, rcc: &mut pac::RCC, _cs: &CriticalSection) -> Self {
-        rcc.apb2enr.modify(|_, w| w.tim1en().set_bit());
-        rcc.apb2enr.read();
-        rcc.apb2rstr.modify(|_, w| w.tim1rst().set_bit());
-        rcc.apb2rstr.modify(|_, w| w.tim1rst().clear_bit());
+    pub fn new(tim2: pac::TIM2, b10: pins::B10, rcc: &mut pac::RCC, _cs: &CriticalSection) -> Self {
+        rcc.apb1enr1.modify(|_, w| w.tim2en().set_bit());
+        rcc.apb1enr1.read();
+        rcc.apb1rstr1.modify(|_, w| w.tim2rst().set_bit());
+        rcc.apb1rstr1.modify(|_, w| w.tim2rst().clear_bit());
 
-        // PA9 to TIM1_CH2 (AF1), high speed.  The HAL has no TIM support,
+        // PB10 to TIM2_CH3 (AF1), high speed.  The HAL has no TIM support,
         // so configure the pin registers directly; exclusivity is
         // guaranteed by owning the pin token and the critical section.
         unsafe {
-            let gpioa = &*pac::GPIOA::PTR;
-            gpioa.ospeedr.modify(|_, w| w.ospeedr9().very_high_speed());
-            gpioa.afrh.modify(|_, w| w.afrh9().af1());
-            gpioa.moder.modify(|_, w| w.moder9().alternate());
+            let gpiob = &*pac::GPIOB::PTR;
+            gpiob.ospeedr.modify(|_, w| w.ospeedr10().very_high_speed());
+            gpiob.afrh.modify(|_, w| w.afrh10().af1());
+            gpiob.moder.modify(|_, w| w.moder10().alternate());
         }
 
-        tim1.psc.write(|w| w.psc().bits(0));
-        tim1.arr.write(|w| w.arr().bits(Self::ARR as u16));
-        // PWM mode 1 with preload: output high while CNT < CCR2.
-        tim1.ccmr1_output()
-            .modify(|_, w| w.oc2m().bits(0b110).oc2pe().set_bit());
-        tim1.ccr2.write(|w| w.ccr2().bits(0));
-        tim1.ccer.modify(|_, w| w.cc2e().set_bit());
-        tim1.bdtr.modify(|_, w| w.moe().set_bit());
-        tim1.egr.write(|w| w.ug().set_bit());
-        tim1.cr1.modify(|_, w| w.arpe().set_bit().cen().set_bit());
+        tim2.psc.write(|w| w.psc().bits(0));
+        tim2.arr.write(|w| w.arr().bits(Self::ARR));
+        // PWM mode 1 with preload: output high while CNT < CCR3.  A CCR3
+        // above ARR keeps the output high for the whole period.
+        tim2.ccmr2_output()
+            .modify(|_, w| w.oc3m().bits(0b110).oc3pe().set_bit());
+        tim2.ccr3.write(|w| w.ccr3().bits(0));
+        tim2.ccer.modify(|_, w| w.cc3e().set_bit());
+        tim2.egr.write(|w| w.ug().set_bit());
+        tim2.cr1.modify(|_, w| w.arpe().set_bit().cen().set_bit());
 
-        Self { tim1, _pin: a9 }
+        Self { tim2, _pin: b10 }
     }
 
-    /// Set the duty cycle in permille (0..=950).  0 turns the switch off.
+    /// Set the duty cycle in permille (0..=1000).  0 turns the switch off.
     pub fn set_duty_permille(&mut self, permille: u32) {
         let pm = permille.min(Self::MAX_DUTY_PERMILLE);
         let ccr = (Self::ARR + 1) * pm / 1000;
-        self.tim1.ccr2.write(|w| w.ccr2().bits(ccr as u16));
+        self.tim2.ccr3.write(|w| w.ccr3().bits(ccr));
     }
 
     /// Current duty cycle in permille.
     pub fn duty_permille(&self) -> u32 {
-        self.tim1.ccr2.read().ccr2().bits() as u32 * 1000 / (Self::ARR + 1)
+        self.tim2.ccr3.read().ccr3().bits() * 1000 / (Self::ARR + 1)
     }
 
     /// Force the switch off (duty 0).
@@ -281,7 +301,7 @@ impl Buck {
 }
 
 /// Radio activity flags, set by the radio driver from wherever a packet
-/// is actually sent or received, consumed by [`Leds::update`].
+/// is actually sent or received, consumed by [`ActivityLed::update`].
 pub mod activity {
     use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -306,48 +326,71 @@ pub mod activity {
 /// packets read as flicker rather than a solid light.
 const LED_PULSE_MS: u32 = 30;
 
-/// Radio activity LEDs: LED1 (PC0) pulses on transmit, LED2 (PC1) on
-/// receive.  Both drive high through 10k into the LED (active high).
-pub struct Leds {
-    tx: Output<pins::C0>,
-    rx: Output<pins::C1>,
-    tx_on_at: u32,
-    tx_lit: bool,
-    rx_on_at: u32,
-    rx_lit: bool,
+/// Radio activity LED: D12 on PC1 (net WIO_USR_LED), with its cathode on
+/// the pin and its anode through R30 (10k) to +3.3V, so driving the pin
+/// low lights it.  The board has one LED for the radio, so it pulses on
+/// transmit and receive alike.
+pub struct ActivityLed {
+    pin: Output<pins::C1>,
+    on_at: u32,
+    lit: bool,
 }
 
-impl Leds {
-    pub fn new(c0: pins::C0, c1: pins::C1, cs: &CriticalSection) -> Self {
+impl ActivityLed {
+    pub fn new(c1: pins::C1, cs: &CriticalSection) -> Self {
+        const OFF: OutputArgs = OutputArgs {
+            level: PinState::High,
+            ..OutputArgs::new()
+        };
         Self {
-            tx: Output::default(c0, cs),
-            rx: Output::default(c1, cs),
-            tx_on_at: 0,
-            tx_lit: false,
-            rx_on_at: 0,
-            rx_lit: false,
+            pin: Output::new(c1, &OFF, cs),
+            on_at: 0,
+            lit: false,
         }
     }
 
-    /// Start pending pulses and retire expired ones.  Call every main
+    /// Start a pending pulse and retire an expired one.  Call every main
     /// loop iteration; an event while lit extends the pulse.
     pub fn update(&mut self, now_ms: u32) {
-        if activity::take_tx() {
-            self.tx.set_level_high();
-            self.tx_on_at = now_ms;
-            self.tx_lit = true;
-        } else if self.tx_lit && now_ms.wrapping_sub(self.tx_on_at) >= LED_PULSE_MS {
-            self.tx.set_level_low();
-            self.tx_lit = false;
+        // Non-short-circuit `|` so a TX and an RX in the same iteration
+        // are both consumed.
+        if activity::take_tx() | activity::take_rx() {
+            self.pin.set_level_low();
+            self.on_at = now_ms;
+            self.lit = true;
+        } else if self.lit && now_ms.wrapping_sub(self.on_at) >= LED_PULSE_MS {
+            self.pin.set_level_high();
+            self.lit = false;
         }
-        if activity::take_rx() {
-            self.rx.set_level_high();
-            self.rx_on_at = now_ms;
-            self.rx_lit = true;
-        } else if self.rx_lit && now_ms.wrapping_sub(self.rx_on_at) >= LED_PULSE_MS {
-            self.rx.set_level_low();
-            self.rx_lit = false;
+    }
+}
+
+/// The switched 5 V rail.  PC0 (net 5V_EN) turns on U13, a load switch
+/// from the battery, and with it the U11 boost converter.  The rail feeds
+/// the J7 field-bus sensor supply and the CH572D USB bridge.  With USB
+/// plugged in, U2 supplies +5V from VBUS whatever this pin does.  R44
+/// (1M) holds the rail off from reset until this takes the pin.
+pub struct Rail5v {
+    en: Output<pins::C0>,
+}
+
+impl Rail5v {
+    pub fn new(c0: pins::C0, cs: &CriticalSection) -> Self {
+        Self {
+            en: Output::default(c0, cs),
         }
+    }
+
+    pub fn set(&mut self, on: bool) {
+        if on {
+            self.en.set_level_high();
+        } else {
+            self.en.set_level_low();
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.en.level() == PinState::High
     }
 }
 
@@ -470,8 +513,6 @@ impl Mppt {
 /// SD card errors.
 #[derive(Debug, Clone, Copy)]
 pub enum SdError {
-    /// Card detect switch open — no card in the socket.
-    NoCard,
     /// Card did not respond in time.
     Timeout,
     /// Unexpected R1/token response (value included).
@@ -496,12 +537,12 @@ type SdSpi = Spi<pac::SPI1, pins::B3, pins::B4, pins::B5>;
 
 /// Minimal SD card driver in SPI mode: init plus single-block read/write.
 ///
-/// SPI1 on PB3/PB4/PB5, chip select on PA0, card detect switch on PB9
-/// (pulled up, low when a card is inserted).
+/// SPI1 on PB3/PB4/PB5, chip select on PA0.  The socket's card detect
+/// switch is not wired on this board, so a missing card shows up as an
+/// init failure: R18 pulls DAT0 high, and CMD0 never sees its reply.
 pub struct SdCard {
     spi: SdSpi,
     cs: Output<pins::A0>,
-    detect: Input<pins::B9>,
     kind: Option<SdKind>,
 }
 
@@ -514,7 +555,6 @@ impl SdCard {
         miso: pins::B4,
         mosi: pins::B5,
         cs_pin: pins::A0,
-        detect_pin: pins::B9,
         rcc: &mut pac::RCC,
         cs: &CriticalSection,
     ) -> Self {
@@ -535,14 +575,8 @@ impl SdCard {
         Self {
             spi,
             cs: Output::new(cs_pin, &CS_ARGS, cs),
-            detect: Input::new(detect_pin, Pull::Up, cs),
             kind: None,
         }
-    }
-
-    /// True when the socket's card detect switch reports a card.
-    pub fn card_present(&self) -> bool {
-        self.detect.level() == PinState::Low
     }
 
     /// Card kind detected by the last successful [`init`](Self::init).
@@ -626,9 +660,6 @@ impl SdCard {
 
     /// Initialize the card (CMD0 / CMD8 / ACMD41 / CMD58 sequence).
     pub fn init(&mut self) -> Result<SdKind, SdError> {
-        if !self.card_present() {
-            return Err(SdError::NoCard);
-        }
         self.kind = None;
         self.set_baud(BaudRate::Div64);
 
@@ -768,28 +799,29 @@ impl SdCard {
     }
 }
 
-/// Everything the charger board adds on top of the bare Wio-E5 module.
+/// Everything the Forest Sensor Platform adds on top of the bare Wio-E5
+/// module, apart from the RS-485 link (see [`crate::rs422`]).
 pub struct Board {
     pub senses: Senses,
     pub buck: Buck,
     pub sd: SdCard,
     pub mppt: Mppt,
-    pub leds: Leds,
+    pub led: ActivityLed,
+    pub rail_5v: Rail5v,
 }
 
 impl Board {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         adc: pac::ADC,
-        tim1: pac::TIM1,
+        tim2: pac::TIM2,
         spi1: pac::SPI1,
         a0: pins::A0,
-        a9: pins::A9,
         a10: pins::A10,
         b3: pins::B3,
         b4: pins::B4,
         b5: pins::B5,
-        b9: pins::B9,
+        b10: pins::B10,
         b13: pins::B13,
         b14: pins::B14,
         c0: pins::C0,
@@ -798,11 +830,12 @@ impl Board {
         cs: &CriticalSection,
     ) -> Self {
         Self {
-            senses: Senses::new(adc, b14, b13, a10, rcc, cs),
-            buck: Buck::new(tim1, a9, rcc, cs),
-            sd: SdCard::new(spi1, b3, b4, b5, a0, b9, rcc, cs),
+            senses: Senses::new(adc, b13, a10, b14, rcc, cs),
+            buck: Buck::new(tim2, b10, rcc, cs),
+            sd: SdCard::new(spi1, b3, b4, b5, a0, rcc, cs),
             mppt: Mppt::new(),
-            leds: Leds::new(c0, c1, cs),
+            led: ActivityLed::new(c1, cs),
+            rail_5v: Rail5v::new(c0, cs),
         }
     }
 

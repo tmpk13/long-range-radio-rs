@@ -40,12 +40,18 @@ const MAX_FW_SIZE: u32 = 56 * FLASH_PAGE_SIZE; // 112 KB
 /*
     Basestation Node — Seeed Wio-E5 (STM32WLE5JC)
 
-    Single UART connection via RS232 TTL 3.3V FTDI adapter.
+    Single UART connection to the host, 115200 8N1.
     All commands (OTA + data relay) are multiplexed on one link.
 
-    USART1:
-        TX — PB6  (pin 10)
-        RX — PB7  (pin 9)
+    Default: USART1 through an RS232 TTL 3.3V FTDI adapter.
+        TX - PB6  (pin 10)
+        RX - PB7  (pin 9)
+
+    `board` feature (Forest Sensor Platform): USART1 belongs to the RS-485
+    transceiver there, and USART2 runs to the CH572D, which bridges it to
+    a USB CDC serial port on the board's USB-C connector.
+        TX - PA2  (pin 19)
+        RX - PA3  (pin 18)
 
     SX1262 radio: integrated (SubGHz peripheral, same as regular node).
     No display on basestation.
@@ -61,8 +67,12 @@ mod app {
         gpio::pins,
         pac::{FLASH, IWDG},
         subghz::SubGhz,
-        uart::{self, Uart1},
+        uart,
     };
+    #[cfg(not(feature = "board"))]
+    use stm32wlxx_hal::uart::Uart1;
+    #[cfg(feature = "board")]
+    use stm32wlxx_hal::uart::Uart2;
     use sx1262_mesh_rs::{
         LoraIo, MeshNode, OtaSender,
         config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS},
@@ -76,7 +86,10 @@ mod app {
     use crate::uart_proto::{self, FrameBuf, FrameParser, cmd, resp, ota_state, err};
 
     type Radio = Sx1262Driver;
+    #[cfg(not(feature = "board"))]
     type HostUart = Uart1<pins::B7, pins::B6>;
+    #[cfg(feature = "board")]
+    type HostUart = Uart2<pins::A3, pins::A2>;
 
     /// Basestation operating state.
     enum BsState {
@@ -150,13 +163,22 @@ mod app {
         radio.init(super::RF_FREQ);
         radio.print_diagnostics();
 
-        // ---- USART1: PB6 TX, PB7 RX ----------------------------------------
-        let gpiob = stm32wlxx_hal::gpio::PortB::split(dp.GPIOB, &mut rcc);
-
+        // ---- Host link: USART1 PB6 TX / PB7 RX, or USART2 PA2 TX / PA3 RX
+        // through the CH572D USB bridge with `board` ----------------------
+        #[cfg(not(feature = "board"))]
+        let uart = {
+            let gpiob = stm32wlxx_hal::gpio::PortB::split(dp.GPIOB, &mut rcc);
+            cortex_m::interrupt::free(|cs| {
+                let u = Uart1::new(dp.USART1, 115_200, uart::Clk::Hsi16, &mut rcc);
+                let u = u.enable_rx(gpiob.b7, cs);
+                u.enable_tx(gpiob.b6, cs)
+            })
+        };
+        #[cfg(feature = "board")]
         let uart = cortex_m::interrupt::free(|cs| {
-            let u = Uart1::new(dp.USART1, 115_200, uart::Clk::Hsi16, &mut rcc);
-            let u = u.enable_rx(gpiob.b7, cs);
-            u.enable_tx(gpiob.b6, cs)
+            let u = Uart2::new(dp.USART2, 115_200, uart::Clk::Hsi16, &mut rcc);
+            let u = u.enable_rx(gpioa.a3, cs);
+            u.enable_tx(gpioa.a2, cs)
         });
 
         // ---- Mesh networking ------------------------------------------------

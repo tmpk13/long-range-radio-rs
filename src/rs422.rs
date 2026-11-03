@@ -1,11 +1,21 @@
-//! RS-422/RS-485 field bus link (`rs422` cargo feature).
+//! RS-485 field bus link (`rs422` cargo feature).
 //!
-//! Ground work for a MAX3430-class differential transceiver on USART2:
-//! PA2 = TX and PA3 = RX (nets UART-2-TX / UART-2-RX, broken out on the
-//! charger board's "UART 2" header).  Full-duplex RS-422 point-to-point
-//! is assumed, with the transceiver's driver enable strapped on, so no
-//! DE/RE GPIO is needed.  For half-duplex RS-485 multi-drop a direction
-//! pin would have to be added around [`Rs422::write_all`].
+//! A TPT482 transceiver (U6) on the Forest Sensor Platform, wired to
+//! USART1: PB6 = TX into the driver input D, PB7 = RX from the receiver
+//! output R, PA9 = DE (driver enable, active high, R36 1M pulldown) and
+//! PB9 = /RE (receiver enable, active low, R37 1M pulldown).  The
+//! schematic's names for the two enable nets are swapped (DE sits on
+//! `Receiver_Output_Enable`); the pins above are what the nets reach.
+//!
+//! R42/R43 strap the full-duplex part into two-wire half duplex (A to Y,
+//! B to Z), so the driver is enabled only while a request is on the wire,
+//! and the receiver is switched off meanwhile so the request does not
+//! echo back into RX.  The pulldowns give the right idle state from
+//! reset: driver off, receiver on.
+//!
+//! J7 carries the bus plus a sensor supply from the switched 5 V rail, so
+//! a probe answers only while [`crate::board::Rail5v`] is on and has had
+//! [`SOIL_WARMUP_MS`] to start.
 //!
 //! Includes a minimal Modbus RTU master, enough to poll the DFRobot
 //! SEN0600 soil temperature/moisture probe (9600 8N1, slave 0x01,
@@ -15,9 +25,9 @@
 use crate::platform::millis;
 use stm32wlxx_hal::{
     embedded_hal::serial::{Read, Write},
-    gpio::pins,
+    gpio::{pins, Output},
     pac,
-    uart::{self, Uart2},
+    uart::{self, Uart1},
 };
 
 /// Line rate — the SEN0600 factory default.
@@ -26,8 +36,17 @@ pub const BAUD: u32 = 9_600;
 /// Modbus slave address of the soil probe (factory default).
 pub const SOIL_ADDR: u8 = 0x01;
 
+/// How long the 5 V rail is on before the probe is polled.  A margin
+/// picked without a measured start-up time for the SEN0600; shorten it
+/// once a bench run shows how soon the probe answers.
+pub const SOIL_WARMUP_MS: u32 = 2_000;
+
 /// Longest Modbus response we accept (read of 16 registers).
 const MAX_FRAME: usize = 5 + 2 * 16 + 2;
+
+/// Longest wait for the last request byte to leave the shift register.
+/// A full 8-byte FIFO at 9600 baud drains in ~8 ms.
+const TX_DONE_TIMEOUT_MS: u32 = 50;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Rs422Error {
@@ -68,51 +87,84 @@ pub struct SoilReading {
     pub temp_c_x10: i16,
 }
 
-/// RS-422 link on USART2 with a Modbus RTU master on top.
+/// RS-485 link on USART1 with a Modbus RTU master on top.
 pub struct Rs422 {
-    uart: Uart2<pins::A3, pins::A2>,
+    uart: Uart1<pins::B7, pins::B6>,
+    de: Output<pins::A9>,
+    re_n: Output<pins::B9>,
 }
 
 impl Rs422 {
     pub fn new(
-        usart2: pac::USART2,
-        a2: pins::A2,
-        a3: pins::A3,
+        usart1: pac::USART1,
+        b6: pins::B6,
+        b7: pins::B7,
+        a9: pins::A9,
+        b9: pins::B9,
         rcc: &mut pac::RCC,
         cs: &cortex_m::interrupt::CriticalSection,
     ) -> Self {
-        let uart = Uart2::new(usart2, BAUD, uart::Clk::PClk, rcc)
-            .enable_rx(a3, cs)
-            .enable_tx(a2, cs);
-        Self { uart }
+        let uart = Uart1::new(usart1, BAUD, uart::Clk::PClk, rcc)
+            .enable_rx(b7, cs)
+            .enable_tx(b6, cs);
+        // Low on both: driver off, receiver on, matching the pulldowns.
+        Self {
+            uart,
+            de: Output::default(a9, cs),
+            re_n: Output::default(b9, cs),
+        }
+    }
+
+    /// The USART1 register block, for the flags the HAL does not expose.
+    /// USART1 is owned by `self.uart`, so access through it is exclusive.
+    fn regs(&self) -> &pac::usart1::RegisterBlock {
+        unsafe { &*pac::USART1::PTR }
     }
 
     /// Clear sticky UART error flags (overrun keeps erroring until
     /// acknowledged in ICR).
     fn clear_errors(&mut self) {
-        // The HAL keeps the register block private; USART2 is owned by
-        // `self.uart` so this access is exclusive.
-        unsafe {
-            let usart2 = &*pac::USART2::PTR;
-            usart2.icr.write(|w| {
-                w.orecf()
-                    .set_bit()
-                    .fecf()
-                    .set_bit()
-                    .pecf()
-                    .set_bit()
-                    .ncf()
-                    .set_bit()
-            });
-        }
+        self.regs().icr.write(|w| {
+            w.orecf()
+                .set_bit()
+                .fecf()
+                .set_bit()
+                .pecf()
+                .set_bit()
+                .ncf()
+                .set_bit()
+        });
     }
 
-    /// Blocking write of the whole buffer.
+    /// Blocking write of the whole buffer, driving the bus only while it
+    /// is on the wire.
     pub fn write_all(&mut self, buf: &[u8]) -> Result<(), Rs422Error> {
+        // Receiver off before the driver comes on, so the request does
+        // not loop back into RX.
+        self.re_n.set_level_high();
+        self.de.set_level_high();
+        let result = self.send(buf);
+        self.de.set_level_low();
+        self.re_n.set_level_low();
+        result
+    }
+
+    /// Queue the bytes, then wait until the last stop bit has left.
+    ///
+    /// The HAL's `flush` cannot be used for this: it waits on ISR.BUSY,
+    /// which tracks the receiver.  Dropping DE on it would cut the last
+    /// byte off the bus.  ISR.TC is the transmitter's own completion flag,
+    /// and writing TDR clears it, so it cannot be left over from before.
+    fn send(&mut self, buf: &[u8]) -> Result<(), Rs422Error> {
         for &byte in buf {
             nb::block!(self.uart.write(byte)).map_err(|_| Rs422Error::Uart)?;
         }
-        nb::block!(self.uart.flush()).map_err(|_| Rs422Error::Uart)?;
+        let start = millis();
+        while self.regs().isr.read().tc().bit_is_clear() {
+            if millis().wrapping_sub(start) > TX_DONE_TIMEOUT_MS {
+                return Err(Rs422Error::Timeout);
+            }
+        }
         Ok(())
     }
 

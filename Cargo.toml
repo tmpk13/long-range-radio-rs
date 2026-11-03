@@ -14,18 +14,22 @@ path = "./src/bin/main.rs"
 [features]
 default = []
 debug = []
-# MPPT buck NiMH charger board: voltage/current sensing, buck PWM, SD card.
+# Forest Sensor Platform V1 board: solar MPPT charger (voltage/current
+# sensing, buck PWM), SD card, activity LED, switched 5 V rail.
 # Raises the system clock from 4 MHz to 16 MHz for PWM resolution.
 board = []
-# RS-422/RS-485 link (MAX3430-class transceiver on USART2, PA2/PA3)
-# with a Modbus RTU master; reads the DFRobot SEN0600 soil probe.
-rs422 = ["dep:nb"]
+# RS-485 link on the board's TPT482 (USART1, DE on PA9, /RE on PB9) with
+# a Modbus RTU master; reads the DFRobot SEN0600 soil probe, powered from
+# the switched 5 V rail.
+rs422 = ["board", "dep:nb"]
 # I2C environmental sensor suite on the shared I2C2 bus: BME680, SCD41,
 # ADXL345/343, AS3935, BMV080 (presence only).
 sensor = []
 # NMEA GPS on USART1 (PB7 RX, 9600 8N1), kept powered and active.
 # Logs GPS sentences plus radio TX/RX events (RSSI, SNR, signal RSSI)
 # and periodic LoRa packet stats to a raw block region of the SD card.
+# On the Forest Sensor Platform PB7 is the RS-485 receiver output, so
+# NMEA arrives over the J7 bus, and this cannot be combined with rs422.
 gps-radio-log = ["board", "dep:nb"]
 
 [dependencies]

@@ -5,6 +5,10 @@
 //! times — no standby or duty cycling.  PB6 (USART1 TX) is left free; the
 //! receiver runs with its factory sentence set.
 //!
+//! On the Forest Sensor Platform PB7 is the output of the RS-485
+//! receiver, which stays enabled (R37 holds /RE low and nothing here
+//! drives PB9), so the sentences come from a talker on the J7 bus.
+//!
 //! Every checksum-valid RMC/GGA sentence, every radio TX/RX event (with
 //! packet RSSI, SNR and signal RSSI from the SX126x packet status) and a
 //! periodic LoRa stats snapshot (received/CRC error/header error counts)
@@ -624,15 +628,16 @@ impl GpsRadioLog {
     /// radio event queue, and periodically sync the partial block.
     /// Call every main loop iteration.
     pub fn poll(&mut self, sd: &mut SdCard, now_ms: u32) {
+        // The socket has no card-detect switch, so setup itself is the
+        // presence check; with no card the first CMD0 gets no reply and
+        // setup fails in about a millisecond.
         if !self.log.ready && now_ms.wrapping_sub(self.next_retry_ms) < i32::MAX as u32 {
             self.next_retry_ms = now_ms.wrapping_add(RETRY_MS);
-            if sd.card_present() {
-                match self.log.setup(sd) {
-                    Ok(()) => {
-                        rtt_target::rprintln!("gps-radio-log: logging at block {}", self.log.lba);
-                    }
-                    Err(e) => debug_println!("gps-radio-log: SD setup failed: {:?}", e),
+            match self.log.setup(sd) {
+                Ok(()) => {
+                    rtt_target::rprintln!("gps-radio-log: logging at block {}", self.log.lba);
                 }
+                Err(e) => debug_println!("gps-radio-log: SD setup failed: {:?}", e),
             }
         }
 

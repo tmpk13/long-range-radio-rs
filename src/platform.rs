@@ -4,7 +4,7 @@
 /// Update this if you reconfigure the clock tree.
 ///
 /// With the `board` feature the MSI is raised to 16 MHz early in init
-/// (see `board::raise_sysclk`) so TIM1 has enough resolution for the
+/// (see `board::raise_sysclk`) so TIM2 has enough resolution for the
 /// 100 kHz buck PWM.
 #[cfg(not(feature = "board"))]
 pub const SYSCLK_HZ: u32 = 4_000_000;

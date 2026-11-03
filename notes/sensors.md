@@ -31,10 +31,9 @@ others.
 
 Branch `peripherals`. Two new independent cargo features.
 
-`rs422`: MAX3430-class transceiver on USART2, PA2 TX / PA3 RX (the
-"UART 2" header nets on the charger board). Full-duplex RS-422
-point-to-point assumed, driver enable strapped on - half-duplex RS-485
-multi-drop would need a DE/RE GPIO around write_all. Includes a
+`rs422`: the Forest Sensor Platform's half-duplex RS-485 transceiver
+on USART1 with DE/RE direction control; wiring and the TC pitfall are
+in `notes/board.md` (RS-485 link). Includes a
 minimal Modbus RTU master (function 0x03 + CRC16). Key discovery: the
 DFRobot soil probe (product 2816 = SEN0600) is NOT I2C - it is RS-485
 Modbus RTU, 9600 8N1, slave 0x01, moisture at holding reg 0x0000 and

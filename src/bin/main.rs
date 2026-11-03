@@ -263,7 +263,7 @@ mod app {
             false
         };
 
-        // ---- Charger board: senses, buck PWM, SD card, LEDs ------------------
+        // ---- Forest Sensor Platform: senses, buck PWM, SD card, LED, 5 V ----
         #[cfg(feature = "board")]
         let board = {
             use stm32wlxx_hal::gpio::PortC;
@@ -271,15 +271,14 @@ mod app {
             let mut board = cortex_m::interrupt::free(|cs| {
                 sx1262_mesh_rs::board::Board::new(
                     dp.ADC,
-                    dp.TIM1,
+                    dp.TIM2,
                     dp.SPI1,
                     gpioa.a0,
-                    gpioa.a9,
                     gpioa.a10,
                     gpiob.b3,
                     gpiob.b4,
                     gpiob.b5,
-                    gpiob.b9,
+                    gpiob.b10,
                     gpiob.b13,
                     gpiob.b14,
                     gpioc.c0,
@@ -290,17 +289,15 @@ mod app {
             });
             board.buck.off();
             watchdog::feed(&iwdg);
-            if board.sd.card_present() {
-                match board.sd.init() {
-                    Ok(kind) => {
-                        rprintln!("SD card ready: {:?}", kind);
-                    }
-                    Err(e) => {
-                        rprintln!("SD card init failed: {:?}", e);
-                    }
+            // No card-detect switch on this board: a failed init is how a
+            // missing card shows up.
+            match board.sd.init() {
+                Ok(kind) => {
+                    rprintln!("SD card ready: {:?}", kind);
                 }
-            } else {
-                rprintln!("No SD card inserted");
+                Err(e) => {
+                    rprintln!("SD card init failed (no card?): {:?}", e);
+                }
             }
             let t = board.senses.read();
             rprintln!(
@@ -314,14 +311,16 @@ mod app {
         #[cfg(not(feature = "board"))]
         let board = ();
 
-        // ---- RS-422 field bus (MAX3430 on USART2) ----------------------------
+        // ---- RS-485 field bus (TPT482 on USART1, DE PA9, /RE PB9) ------------
         #[cfg(feature = "rs422")]
         let rs422 = {
             let link = cortex_m::interrupt::free(|cs| {
-                sx1262_mesh_rs::rs422::Rs422::new(dp.USART2, gpioa.a2, gpioa.a3, &mut rcc, cs)
+                sx1262_mesh_rs::rs422::Rs422::new(
+                    dp.USART1, gpiob.b6, gpiob.b7, gpioa.a9, gpiob.b9, &mut rcc, cs,
+                )
             });
             rprintln!(
-                "RS-422 link on USART2 (PA2 TX / PA3 RX) at {} baud",
+                "RS-485 link on USART1 (PB6 TX / PB7 RX) at {} baud",
                 sx1262_mesh_rs::rs422::BAUD
             );
             link
@@ -458,9 +457,20 @@ mod app {
                     next_display_retry = Mono::now() + display_retry_interval;
                 }
             }
-            // Pulse the radio activity LEDs (TX on PC0, RX on PC1).
+            // Pulse the radio activity LED (D12 on PC1) on TX and RX.
             #[cfg(feature = "board")]
-            board.leds.update(sx1262_mesh_rs::platform::millis());
+            board.led.update(sx1262_mesh_rs::platform::millis());
+
+            // The soil probe on J7 is powered from the switched 5 V rail:
+            // bring it up early enough for the probe to start before the
+            // sweep polls it.  The sweep switches it off again.
+            #[cfg(feature = "rs422")]
+            if !ota_active
+                && !board.rail_5v.is_on()
+                && Mono::now() + sx1262_mesh_rs::rs422::SOIL_WARMUP_MS.millis() >= next_sensor
+            {
+                board.rail_5v.set(true);
+            }
 
             // Drain the GPS and radio event queue into the SD log.
             #[cfg(feature = "gps-radio-log")]
@@ -631,18 +641,21 @@ mod app {
                     }
                 }
                 #[cfg(feature = "rs422")]
-                match rs422.read_soil() {
-                    Ok(soil) => {
-                        rprintln!(
-                            "Soil: {}.{} % {}.{} C",
-                            soil.moisture_pct_x10 / 10,
-                            soil.moisture_pct_x10 % 10,
-                            soil.temp_c_x10 / 10,
-                            (soil.temp_c_x10 % 10).unsigned_abs()
-                        );
-                        tele.push('M', soil.moisture_pct_x10 as i32);
+                {
+                    match rs422.read_soil() {
+                        Ok(soil) => {
+                            rprintln!(
+                                "Soil: {}.{} % {}.{} C",
+                                soil.moisture_pct_x10 / 10,
+                                soil.moisture_pct_x10 % 10,
+                                soil.temp_c_x10 / 10,
+                                (soil.temp_c_x10 % 10).unsigned_abs()
+                            );
+                            tele.push('M', soil.moisture_pct_x10 as i32);
+                        }
+                        Err(e) => debug_println!("Soil probe: {:?}", e),
                     }
-                    Err(e) => debug_println!("Soil probe: {:?}", e),
+                    board.rail_5v.set(false);
                 }
                 if !tele.as_bytes().is_empty() {
                     if let Err(e) = mesh.broadcast(tele.as_bytes(), BROADCAST_LIFETIME) {

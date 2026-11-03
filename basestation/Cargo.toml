@@ -7,6 +7,9 @@ version = "0.1.0"
 [features]
 default = []
 debug = []
+# Forest Sensor Platform board: the host link moves from USART1 to USART2
+# (PA2/PA3), which the board's CH572D bridges to USB.
+board = []
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
