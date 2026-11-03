@@ -1,11 +1,19 @@
+[tools]
+# Flashes the CH572D through its ROM bootloader over USB.  CH570/CH572
+# support is only on main (the last release, 0.3.0, predates it).
+"cargo:https://github.com/ch32-rs/wchisp" = "rev:553327eeeea9fdc30414f1e5c74d1ff14b228a26"
+
 [tasks.build]
-description = "Build the app, bootloader and basestation firmware (release) without flashing"
+description = "Build the app, bootloader, basestation and CH572D firmware (release) without flashing"
 # One cargo call per package: a single --workspace build unifies cortex-m-rt
 # features across members and the bootloader then fails to link (no device.x).
+# The CH572D crate is its own workspace with its own target, built from its
+# directory so its .cargo/config.toml applies.
 run = [
     "cargo build --release",
     "cargo build --release -p bootloader",
     "cargo build --release -p basestation",
+    "cd ch572 && cargo build --release",
 ]
 
 [tasks.bootloader]
@@ -35,3 +43,17 @@ run = "python3 basestation/host/data_relay.py"
 [tasks.unlock]
 description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe; hold NRST low as notes/build-flash.md describes"
 run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
+
+[tasks.ch572-flash]
+description = "Build and flash the CH572D USB bridge with wchisp; the chip must be in its ROM bootloader (blank, or after mise run ch572-boot)"
+dir = "ch572"
+run = "cargo run --release"
+
+[tasks.ch572-boot]
+description = "Restart a running CH572D bridge into its ROM bootloader (1200 baud touch); PORT defaults to /dev/ttyACM0"
+run = 'stty -F "${PORT:-/dev/ttyACM0}" 1200'
+
+[tasks.ch572-test]
+description = "Run the CH572D firmware's host tests: USB driver, SWD and bridge against simulated hardware"
+dir = "ch572"
+run = 'cargo test --lib --target "$(rustc -vV | sed -n "s/^host: //p")"'

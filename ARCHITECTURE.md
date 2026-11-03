@@ -95,3 +95,32 @@ numbers are module pads.
 | 5V_EN    | PC0 | Switched 5 V rail (J7 sensor supply, CH572D) |
 | LED      | PC1 | D12, active low |
 | RF switch | PA4 (control 1), PA5 (control 2) | Module-internal, not on a pad |
+
+## CH572D USB bridge
+
+`ch572/` is the firmware for the board's CH572D: one composite USB device
+whose serial port is bridged to the Wio-E5's USART2 and whose CMSIS-DAP
+interface drives the Wio-E5's SWD port. A single polling loop, no
+interrupts; everything left of `hw.rs` in the diagram also runs in the
+host tests against simulated hardware.
+
+```mermaid
+graph LR
+    Host["Host PC<br/>probe-rs, serial tools"]
+    subgraph CH572D["CH572D firmware"]
+        Bus["usb.rs<br/>usb-device bus driver"]
+        CDC["SerialPort<br/>CDC-ACM"]
+        DAPIF["dapclass.rs<br/>CMSIS-DAP v2"]
+        DAP["dap-rs"]
+        SWD["swd.rs<br/>SWD engine"]
+        HW["hw.rs<br/>UART rings, SWD pins, clock"]
+    end
+    Wio["Wio-E5"]
+    Host <-->|USB| Bus
+    Bus --- CDC
+    Bus --- DAPIF
+    CDC <-->|bridge.rs| HW
+    DAPIF --> DAP --> SWD --> HW
+    HW <-->|"UART PA8/PA9 to USART2"| Wio
+    HW -->|"PA5 SWCLK, PA7 SWDIO, PA6 nRESET"| Wio
+```

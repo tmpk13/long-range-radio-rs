@@ -1,0 +1,11 @@
+# The CH572 core is a QingKe V3C (RV32IMBC, no atomics), so the plain
+# imc target applies.  This value overrides the parent directory's
+# thumbv7em target; host tests pass --target explicitly (mise run
+# ch572-test).
+[build]
+target = "riscv32imc-unknown-none-elf"
+
+# The CH572D's ROM bootloader over USB; wchisp needs a release newer than
+# 0.3.0 for the CH572 (see notes/ch572.md).
+[target.riscv32imc-unknown-none-elf]
+runner = "wchisp flash"
