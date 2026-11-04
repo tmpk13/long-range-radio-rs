@@ -55,7 +55,12 @@ imc target has no Zifencei).
 
 The crystal's load caps C26/C27 (18 pF) are fitted on V1 although the
 CH572 has internal ones (board review H2): the clock runs some tens of ppm
-low. USB does not care, so R8_XT32M_TUNE is left at reset.
+low. USB does not care, so R8_XT32M_TUNE is left at reset. They also add to
+the internal load (16 pF at reset) against Y2's 12 pF rating (Murata
+XRCGB32M000F1S1DR0), which cuts the oscillator's start-up margin. That
+matters more than usual: the chip has no fast internal oscillator and runs
+from the crystal / 5 from power-on, so a crystal that does not start leaves
+it silent, bootloader included.
 
 ## USB driver (`src/usb.rs`)
 
@@ -122,7 +127,8 @@ RB_UIF_TRANSFER is cleared. Handling follows WCH's CH572 COM example:
   `ch572/70-fsp-ch572.rules`, which covers all three.
 - Flashing is over USB through the ROM bootloader with wchisp. CH570/CH572
   support is only on wchisp's main branch (added 2025-12, after 0.3.0), so
-  mise.toml pins a commit. A blank chip starts in the bootloader. wlink
+  mise.toml pins a commit. The board review says a blank chip enumerates
+  on its own; the first board's did not, so use the PA1 pull-up below. wlink
   0.1.3 (WCH-LinkE) also supports the CH572 over its 2-wire debug pins,
   which are PA0/PA1, the USB lines, and which the firmware turns off when
   it attaches to USB.
@@ -140,11 +146,17 @@ The board has no BOOT button for the CH572D (review M3), so:
    the path, so it is unverified: if the reading is wrong the chip only
    restarts the bridge, and `lsusb` shows 1209:0001 again instead of the
    WCH ISP device.
-2. Per the board review, WCH's EVT enters the bootloader with PA1 (D+)
-   pulled to VDD33 through 5.1k at power-on. Through a USB-C breakout:
-   D+ to +3.3V (J2 pin 3) via 5.1k while plugging in.
+2. PA1 (D+) pulled up to VCC before power is applied (WCH's CH572
+   evaluation board manual, section 4.3, in EVT/PUB of the repo above). On
+   this board: 5.1k from R41's VDD33 end to D+, then plug in. Against the
+   host's 15k pull-down D+ reads about 2.5 V; once the bootloader runs, its
+   own 1.5k pull-up in parallel lifts it to about 3.0 V. Do not use +5V:
+   PA1 is not 5 V tolerant (VIO33 + 0.4 V max).
 3. A WCH-LinkE on D-/D+ with wlink, catching the chip before the firmware
    claims those pins for USB.
+4. The ROM also takes serial downloads on PA0/PA1 with no pull-up (same
+   manual, section 4.2), from a 3.3 V UART on D-/D+. The manual does not
+   say which pin is TX.
 
 ## Board issues that touch the CH572D
 
@@ -162,8 +174,9 @@ fixed (pad 21 is on GND):
 
 ## First bring-up
 
-Step 1 has passed on the first board (2026-11-03); the rest has not run
-on hardware yet. In order:
+Step 1 has passed on the first board (2026-11-03); step 3 is stuck there
+(2026-11-04, see its notes); the rest has not run on hardware yet. In
+order:
 
 1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
    attached, SD slot empty. Expect about 3-8 mA, 11 mA at datasheet
@@ -185,8 +198,18 @@ on hardware yet. In order:
    - WIO-RST (J2 pin 5) should read near 3.3 V. Much lower means the dead
      CH572D clamps it (H3) and holds the Wio-E5 in reset.
 2. `mise install` (builds wchisp) and `mise run udev`.
-3. USB-C in. A blank CH572D starts in its bootloader: `lsusb` shows
-   4348:55e0 or 1a86:55e0. `mise run ch572-flash`.
+3. USB-C in, and check VDD33 at R41's chip end: 3.2-3.4 V. Higher means
+   the chip draws less than the ~1.13 mA that R41 feeds it, and the LDO
+   cannot sink the rest. The first board's first CH572D read 4.5 V (above
+   its 4.0 V absolute maximum) and was replaced. Then unplug, fit the PA1
+   pull-up ("Getting back into the bootloader", method 2) and plug in:
+   `lsusb` shows 4348:55e0 or 1a86:55e0. `mise run ch572-flash`, then
+   remove the pull-up.
+   - First board, replacement chip: VDD33 3.3 V, D+ 2.5 V with the
+     pull-up, and the host logs a full-speed attach with -71 errors. The
+     host sees only the external pull-up; the bootloader never turned on
+     its own. Suspects: U9 pin 12 not soldered, or Y2 not oscillating
+     (see Clock).
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
