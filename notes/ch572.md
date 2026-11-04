@@ -162,11 +162,14 @@ fixed (pad 21 is on GND):
 
 ## First bring-up
 
-None of this has run on hardware. In order:
+Step 1 has passed on the first board (2026-11-03); the rest has not run
+on hardware yet. In order:
 
 1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
    attached, SD slot empty. Expect about 3-8 mA, 11 mA at datasheet
-   maxima; much more points at a short or a misplaced part.
+   maxima; much more points at a short or a misplaced part. The first
+   board drew 200 mA with no short: D7 fitted backwards and put on the
+   rail by R33 (Forest-Sensor-Platform BOARD-REVIEW.md, P1 and P2).
    - Wio-E5 awake with its radio off, 1-6 mA (DS13105 run current at
      4-48 MHz). Blank, it sits in ST's ROM bootloader (RM0461 empty
      check). The factory image goes to Seeed's upgrade mode instead of
