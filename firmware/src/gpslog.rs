@@ -366,7 +366,13 @@ impl Gps {
                 let secs = ms / 1000;
                 fmt_line(
                     buf,
-                    format_args!("{:02} {}dBm {}m{:02}s", self.sats, rssi, secs / 60, secs % 60),
+                    format_args!(
+                        "{:02} {}dBm {}m{:02}s",
+                        self.sats,
+                        rssi,
+                        secs / 60,
+                        secs % 60
+                    ),
                 )
             }
             None => fmt_line(buf, format_args!("{:02} no rx", self.sats)),
@@ -418,11 +424,7 @@ fn nth_field(line: &[u8], n: usize) -> &[u8] {
         }
         i += 1;
     }
-    if idx == n {
-        &line[start..i]
-    } else {
-        &[]
-    }
+    if idx == n { &line[start..i] } else { &[] }
 }
 
 /// Parse a run of ASCII digits, ignoring any other bytes.

@@ -30,7 +30,7 @@
 //! skipped forever after.  All reads are blocking with millis-based
 //! timeouts; the longest (BME680 with the gas heater) is ~250 ms.
 
-use crate::platform::{millis, SYSCLK_HZ};
+use crate::platform::{SYSCLK_HZ, millis};
 use core::cell::RefCell;
 use stm32wlxx_hal::embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
@@ -331,10 +331,7 @@ where
     /// when an event was pending in the AS3935.
     pub fn read(&mut self) -> Readings {
         Readings {
-            bme: self
-                .found
-                .bme680
-                .and_then(|addr| self.bme_read(addr).ok()),
+            bme: self.found.bme680.and_then(|addr| self.bme_read(addr).ok()),
             co2: if self.found.scd41 {
                 self.scd41_read().ok()
             } else {
@@ -345,14 +342,8 @@ where
             } else {
                 None
             },
-            baro: self
-                .found
-                .bmp280
-                .and_then(|addr| self.bmp_read(addr).ok()),
-            mcp: self
-                .found
-                .mcp9808
-                .and_then(|addr| self.mcp_read(addr).ok()),
+            baro: self.found.bmp280.and_then(|addr| self.bmp_read(addr).ok()),
+            mcp: self.found.mcp9808.and_then(|addr| self.mcp_read(addr).ok()),
             accel: self
                 .found
                 .adxl345
@@ -554,7 +545,8 @@ where
         let var4 = var1 * (1.0 + var2 * target_c as f32);
         let var5 = var4 + var3 * ambient_c as f32;
         let code = 3.4
-            * (var5 * (4.0 / (4.0 + c.res_heat_range as f32))
+            * (var5
+                * (4.0 / (4.0 + c.res_heat_range as f32))
                 * (1.0 / (1.0 + c.res_heat_val as f32 * 0.002))
                 - 25.0);
         code as u8
@@ -631,8 +623,7 @@ where
         // Gas resistance.
         let gas_ohm = if gas_valid {
             const K1: [f32; 16] = [
-                0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -0.8, 0.0, 0.0, -0.2, -0.5, 0.0, -1.0, 0.0,
-                0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0, -0.8, 0.0, 0.0, -0.2, -0.5, 0.0, -1.0, 0.0, 0.0,
             ];
             const K2: [f32; 16] = [
                 0.0, 0.0, 0.0, 0.0, 0.1, 0.7, 0.0, -0.8, -0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,

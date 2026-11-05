@@ -63,16 +63,17 @@ mod app {
     systick_monotonic!(Mono, 1000);
 
     use embedded_hal::serial::Read as SerialRead;
+    use rtt_target::{rprintln, rtt_init, set_print_channel};
+    #[cfg(not(feature = "board"))]
+    use stm32wlxx_hal::uart::Uart1;
+    #[cfg(feature = "board")]
+    use stm32wlxx_hal::uart::Uart2;
     use stm32wlxx_hal::{
         gpio::pins,
         pac::{FLASH, IWDG},
         subghz::SubGhz,
         uart,
     };
-    #[cfg(not(feature = "board"))]
-    use stm32wlxx_hal::uart::Uart1;
-    #[cfg(feature = "board")]
-    use stm32wlxx_hal::uart::Uart2;
     use sx1262_mesh_rs::{
         LoraIo, MeshNode, OtaSender,
         config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS},
@@ -81,9 +82,8 @@ mod app {
         radio::{RfSwitch, Sx1262Driver},
         watchdog,
     };
-    use rtt_target::{rprintln, rtt_init, set_print_channel};
 
-    use crate::uart_proto::{self, FrameBuf, FrameParser, cmd, resp, ota_state, err};
+    use crate::uart_proto::{self, FrameBuf, FrameParser, cmd, err, ota_state, resp};
 
     type Radio = Sx1262Driver;
     #[cfg(not(feature = "board"))]
@@ -107,9 +107,7 @@ mod app {
             current_page: u16,
         },
         /// Sending firmware to target node over mesh radio.
-        Transferring {
-            target_addr: u8,
-        },
+        Transferring { target_addr: u8 },
     }
 
     #[shared]
@@ -241,9 +239,14 @@ mod app {
                         if parser.feed(byte) {
                             let frame = parser.frame();
                             handle_cmd(
-                                frame.cmd, frame.payload,
-                                state, ota_sender, flash, mesh,
-                                uart, tx_frame,
+                                frame.cmd,
+                                frame.payload,
+                                state,
+                                ota_sender,
+                                flash,
+                                mesh,
+                                uart,
+                                tx_frame,
                             );
                         }
                     }
@@ -297,7 +300,8 @@ mod app {
                 && let BsState::Transferring { target_addr } = state
                 && let Some(msg) = sender.next_message()
             {
-                mesh.send(&msg.data[..msg.len], *target_addr, BROADCAST_LIFETIME).ok();
+                mesh.send(&msg.data[..msg.len], *target_addr, BROADCAST_LIFETIME)
+                    .ok();
             }
 
             // -- 6. Periodic progress reporting --------------------------
@@ -306,7 +310,11 @@ mod app {
 
                 let (st, pct, sent, total) = match state {
                     BsState::Idle => (ota_state::IDLE, 0u8, 0u16, 0u16),
-                    BsState::ReceivingFw { fw_size, bytes_received, .. } => {
+                    BsState::ReceivingFw {
+                        fw_size,
+                        bytes_received,
+                        ..
+                    } => {
                         let pct = if *fw_size > 0 {
                             (*bytes_received * 100 / *fw_size) as u8
                         } else {
@@ -373,13 +381,10 @@ mod app {
                 }
 
                 let target_addr = payload[0];
-                let fw_size = u32::from_le_bytes([
-                    payload[1], payload[2], payload[3], payload[4],
-                ]);
+                let fw_size = u32::from_le_bytes([payload[1], payload[2], payload[3], payload[4]]);
                 let fw_version = u16::from_le_bytes([payload[5], payload[6]]);
-                let expected_crc = u32::from_le_bytes([
-                    payload[7], payload[8], payload[9], payload[10],
-                ]);
+                let expected_crc =
+                    u32::from_le_bytes([payload[7], payload[8], payload[9], payload[10]]);
 
                 if fw_size == 0 || fw_size > super::MAX_FW_SIZE {
                     tx.build(resp::NAK, &[err::BAD_SIZE]);
@@ -391,7 +396,10 @@ mod app {
 
                 rprintln!(
                     "OTA start: target={} size={} ver={} crc=0x{:08X}",
-                    target_addr, fw_size, fw_version, expected_crc
+                    target_addr,
+                    fw_size,
+                    fw_version,
+                    expected_crc
                 );
 
                 *state = BsState::ReceivingFw {
@@ -481,28 +489,27 @@ mod app {
             }
 
             cmd::BEGIN_TRANSFER => {
-                let (target_addr, fw_size, fw_version, expected_crc, bytes_received) =
-                    match state {
-                        BsState::ReceivingFw {
-                            target_addr,
-                            fw_size,
-                            fw_version,
-                            expected_crc,
-                            bytes_received,
-                            ..
-                        } => (
-                            *target_addr,
-                            *fw_size,
-                            *fw_version,
-                            *expected_crc,
-                            *bytes_received,
-                        ),
-                        _ => {
-                            tx.build(resp::NAK, &[err::INVALID_STATE]);
-                            uart_send(uart, tx.as_bytes());
-                            return;
-                        }
-                    };
+                let (target_addr, fw_size, fw_version, expected_crc, bytes_received) = match state {
+                    BsState::ReceivingFw {
+                        target_addr,
+                        fw_size,
+                        fw_version,
+                        expected_crc,
+                        bytes_received,
+                        ..
+                    } => (
+                        *target_addr,
+                        *fw_size,
+                        *fw_version,
+                        *expected_crc,
+                        *bytes_received,
+                    ),
+                    _ => {
+                        tx.build(resp::NAK, &[err::INVALID_STATE]);
+                        uart_send(uart, tx.as_bytes());
+                        return;
+                    }
+                };
 
                 if bytes_received < fw_size {
                     tx.build(resp::NAK, &[err::NO_FW_DATA]);
@@ -516,7 +523,8 @@ mod app {
                 if crc32 != expected_crc {
                     rprintln!(
                         "OTA CRC mismatch: host=0x{:08X} dfu=0x{:08X}",
-                        expected_crc, crc32
+                        expected_crc,
+                        crc32
                     );
                     *state = BsState::Idle;
                     tx.build(resp::NAK, &[err::CRC_MISMATCH]);
@@ -526,7 +534,10 @@ mod app {
 
                 rprintln!(
                     "Starting mesh OTA: target={} size={} crc=0x{:08X} ver={}",
-                    target_addr, fw_size, crc32, fw_version
+                    target_addr,
+                    fw_size,
+                    crc32,
+                    fw_version
                 );
 
                 *ota_sender = Some(OtaSender::new(fw_size, crc32, fw_version));
@@ -539,7 +550,11 @@ mod app {
             cmd::QUERY_STATUS => {
                 let (st, pct, sent, total) = match state {
                     BsState::Idle => (ota_state::IDLE, 0u8, 0u16, 0u16),
-                    BsState::ReceivingFw { fw_size, bytes_received, .. } => {
+                    BsState::ReceivingFw {
+                        fw_size,
+                        bytes_received,
+                        ..
+                    } => {
                         let pct = if *fw_size > 0 {
                             (*bytes_received * 100 / *fw_size) as u8
                         } else {

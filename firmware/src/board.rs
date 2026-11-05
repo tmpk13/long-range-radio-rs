@@ -29,9 +29,9 @@ use cortex_m::interrupt::CriticalSection;
 use stm32wlxx_hal::{
     adc::{self, Adc, OversampleRatio, OversampleShift},
     embedded_hal::blocking::delay::DelayUs,
-    gpio::{pins, Analog, Output, OutputArgs, PinState},
+    gpio::{Analog, Output, OutputArgs, PinState, pins},
     pac,
-    spi::{BaudRate, Spi, Transfer, Write, MODE_0},
+    spi::{BaudRate, MODE_0, Spi, Transfer, Write},
 };
 
 /// Charger tuning constants.
@@ -560,14 +560,8 @@ impl SdCard {
     ) -> Self {
         // Cards must be initialized below 400 kHz; Div64 gives 250 kHz
         // at the 16 MHz core clock.  init() raises it afterwards.
-        let spi = Spi::new_spi1_full_duplex(
-            spi1,
-            (sck, miso, mosi),
-            MODE_0,
-            BaudRate::Div64,
-            rcc,
-            cs,
-        );
+        let spi =
+            Spi::new_spi1_full_duplex(spi1, (sck, miso, mosi), MODE_0, BaudRate::Div64, rcc, cs);
         const CS_ARGS: OutputArgs = OutputArgs {
             level: PinState::High,
             ..OutputArgs::new()

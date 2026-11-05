@@ -38,7 +38,9 @@ pub fn millis() -> u32 {
     let total = leftover.saturating_add(elapsed);
     let new_ms = total / TICKS_PER_MS;
     LEFTOVER.store(total % TICKS_PER_MS, Ordering::Relaxed);
-    ACCUM_MS.fetch_add(new_ms, Ordering::Relaxed).wrapping_add(new_ms)
+    ACCUM_MS
+        .fetch_add(new_ms, Ordering::Relaxed)
+        .wrapping_add(new_ms)
 }
 
 /// Random number in `[min, max)`.

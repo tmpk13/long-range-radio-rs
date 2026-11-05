@@ -18,7 +18,7 @@
 
 use core::ptr;
 
-use crate::ota_protocol::{msg, CHUNK_DATA_SIZE, OtaChunk, OtaOffer};
+use crate::ota_protocol::{CHUNK_DATA_SIZE, OtaChunk, OtaOffer, msg};
 
 // -- Flash constants ---------------------------------------------------------
 
@@ -79,8 +79,7 @@ impl OtaSender {
     /// - `crc32`: expected CRC32 of the firmware data.
     /// - `version`: firmware version number.
     pub fn new(firmware_size: u32, crc32: u32, version: u16) -> Self {
-        let total_chunks =
-            firmware_size.div_ceil(CHUNK_DATA_SIZE as u32) as u16;
+        let total_chunks = firmware_size.div_ceil(CHUNK_DATA_SIZE as u32) as u16;
         Self {
             offer: OtaOffer {
                 firmware_size,

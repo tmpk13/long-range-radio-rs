@@ -25,7 +25,7 @@
 use crate::platform::millis;
 use stm32wlxx_hal::{
     embedded_hal::serial::{Read, Write},
-    gpio::{pins, Output},
+    gpio::{Output, pins},
     pac,
     uart::{self, Uart1},
 };

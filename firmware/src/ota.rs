@@ -12,7 +12,7 @@ use stm32wlxx_hal::flash::{AlignedAddr, Flash, Page};
 use stm32wlxx_hal::pac;
 
 use crate::config::FIRMWARE_VERSION;
-use crate::ota_protocol::{self, msg, reason, OtaChunk, OtaChunkAck, OtaOffer};
+use crate::ota_protocol::{self, OtaChunk, OtaChunkAck, OtaOffer, msg, reason};
 
 // -- Flash / partition constants ---------------------------------------------
 
@@ -74,9 +74,7 @@ impl Default for OtaReceiver {
 
 impl OtaReceiver {
     pub fn new() -> Self {
-        Self {
-            state: State::Idle,
-        }
+        Self { state: State::Idle }
     }
 
     fn page_buf(&self) -> &[u8; PAGE_BUF_SIZE] {
@@ -146,11 +144,7 @@ impl OtaReceiver {
     }
 
     /// Handle an OTA_CHUNK message.
-    fn handle_chunk(
-        &mut self,
-        payload: &[u8],
-        flash: &mut pac::FLASH,
-    ) -> Option<OtaResponse> {
+    fn handle_chunk(&mut self, payload: &[u8], flash: &mut pac::FLASH) -> Option<OtaResponse> {
         // Extract current state, or bail if idle.
         let (next_chunk, _total_chunks) = match &self.state {
             State::Active(rx) => (rx.next_chunk, rx.offer.total_chunks),
@@ -188,8 +182,7 @@ impl OtaReceiver {
         let space = PAGE_BUF_SIZE - offset;
         let to_copy = data_len.min(space);
 
-        self.page_buf_mut()[offset..offset + to_copy]
-            .copy_from_slice(&chunk.data[..to_copy]);
+        self.page_buf_mut()[offset..offset + to_copy].copy_from_slice(&chunk.data[..to_copy]);
 
         // Update state (need to re-borrow after page_buf write)
         let rx = match &mut self.state {
@@ -218,8 +211,7 @@ impl OtaReceiver {
             // Copy remainder if chunk data spanned a page boundary.
             if to_copy < data_len {
                 let remainder = data_len - to_copy;
-                self.page_buf_mut()[..remainder]
-                    .copy_from_slice(&chunk.data[to_copy..data_len]);
+                self.page_buf_mut()[..remainder].copy_from_slice(&chunk.data[to_copy..data_len]);
                 let rx = match &mut self.state {
                     State::Active(rx) => rx,
                     _ => unreachable!(),

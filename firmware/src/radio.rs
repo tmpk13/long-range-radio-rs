@@ -29,7 +29,7 @@ use stm32wlxx_hal::gpio::{Output, OutputArgs, PinState, Speed, pins};
 use stm32wlxx_hal::spi::{SgMiso, SgMosi};
 use stm32wlxx_hal::subghz::{
     CalibrateImage, CfgIrq, CodingRate, FallbackMode, HeaderType, Irq, LoRaBandwidth,
-    LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PaConfig, PaSel, PMode, PacketType,
+    LoRaModParams, LoRaPacketParams, LoRaSyncWord, Ocp, PMode, PaConfig, PaSel, PacketType,
     RampTime, RegMode, RfFreq, SpreadingFactor, StandbyClk, SubGhz, TcxoMode, TcxoTrim, Timeout,
     TxParams,
 };

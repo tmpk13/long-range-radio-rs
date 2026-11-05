@@ -44,7 +44,10 @@ struct TelemetryLine {
 #[cfg(any(feature = "sensor", feature = "rs422"))]
 impl TelemetryLine {
     fn new() -> Self {
-        Self { buf: [0; 32], len: 0 }
+        Self {
+            buf: [0; 32],
+            len: 0,
+        }
     }
 
     fn push(&mut self, key: char, value: i32) {
@@ -102,21 +105,21 @@ mod app {
         prelude::*,
         text::{Baseline, Text},
     };
-    use sx1262_mesh_rs::{LoraIo, MeshNode};
     use rtt_target::{rprintln, rtt_init, set_print_channel};
-    use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
+    use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
     use stm32wlxx_hal::{
-        gpio::{pins, PortA, PortB},
+        gpio::{PortA, PortB, pins},
         i2c::I2c2,
         pac::{FLASH, IWDG},
         subghz::SubGhz,
     };
+    use sx1262_mesh_rs::OtaReceiver;
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
     use sx1262_mesh_rs::ota_protocol;
     use sx1262_mesh_rs::platform::SYSCLK_HZ;
     use sx1262_mesh_rs::radio::{RfSwitch, Sx1262Driver};
-    use sx1262_mesh_rs::OtaReceiver;
     use sx1262_mesh_rs::watchdog;
+    use sx1262_mesh_rs::{LoraIo, MeshNode};
 
     /// Charger board resources; unit type when the feature is off so the
     /// RTIC resource plumbing stays identical in both builds.
@@ -149,11 +152,8 @@ mod app {
     type GpsLogRes = ();
 
     type Radio = Sx1262Driver;
-    type Display = Ssd1306<
-        I2CInterface<I2cBus>,
-        DisplaySize128x64,
-        BufferedGraphicsMode<DisplaySize128x64>,
-    >;
+    type Display =
+        Ssd1306<I2CInterface<I2cBus>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>;
 
     #[shared]
     struct Shared {}
@@ -184,7 +184,6 @@ mod app {
 
         rprintln!("Starting... 1");
 
-
         // Enable DWT cycle counter for millis()/random()
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
@@ -204,7 +203,6 @@ mod app {
         let mut flash_periph = dp.FLASH;
 
         rprintln!("Starting... 2");
-
 
         // Start watchdog (5 s timeout). If the app never reaches confirm_boot
         // or hangs during init, the MCU resets and the bootloader reverts.
@@ -270,21 +268,8 @@ mod app {
             let gpioc = PortC::split(dp.GPIOC, &mut rcc);
             let mut board = cortex_m::interrupt::free(|cs| {
                 sx1262_mesh_rs::board::Board::new(
-                    dp.ADC,
-                    dp.TIM2,
-                    dp.SPI1,
-                    gpioa.a0,
-                    gpioa.a10,
-                    gpiob.b3,
-                    gpiob.b4,
-                    gpiob.b5,
-                    gpiob.b10,
-                    gpiob.b13,
-                    gpiob.b14,
-                    gpioc.c0,
-                    gpioc.c1,
-                    &mut rcc,
-                    cs,
+                    dp.ADC, dp.TIM2, dp.SPI1, gpioa.a0, gpioa.a10, gpiob.b3, gpiob.b4, gpiob.b5,
+                    gpiob.b10, gpiob.b13, gpiob.b14, gpioc.c0, gpioc.c1, &mut rcc, cs,
                 )
             });
             board.buck.off();
@@ -359,7 +344,22 @@ mod app {
 
         run::spawn().unwrap();
 
-        (Shared {}, Local { io, mesh, display, display_ok, flash: flash_periph, ota, iwdg, board, sensors, rs422, gpslog })
+        (
+            Shared {},
+            Local {
+                io,
+                mesh,
+                display,
+                display_ok,
+                flash: flash_periph,
+                ota,
+                iwdg,
+                board,
+                sensors,
+                rs422,
+                gpslog,
+            },
+        )
     }
 
     #[task(local = [io, mesh, display, display_ok, flash, ota, iwdg, board, sensors, rs422, gpslog], priority = 1)]
@@ -478,11 +478,7 @@ mod app {
                 gpslog.poll(&mut board.sd, sx1262_mesh_rs::platform::millis());
                 if Mono::now() >= next_stats {
                     if let Ok(stats) = io.inner().lora_stats() {
-                        gpslog.log_stats(
-                            &mut board.sd,
-                            sx1262_mesh_rs::platform::millis(),
-                            stats,
-                        );
+                        gpslog.log_stats(&mut board.sd, sx1262_mesh_rs::platform::millis(), stats);
                     }
                     next_stats = Mono::now() + stats_interval;
                 }
@@ -546,8 +542,7 @@ mod app {
                     board.mppt.duty_permille(),
                     board.mppt.state()
                 );
-                next_mppt = Mono::now()
-                    + sx1262_mesh_rs::board::charge::MPPT_PERIOD_MS.millis();
+                next_mppt = Mono::now() + sx1262_mesh_rs::board::charge::MPPT_PERIOD_MS.millis();
             }
 
             // Environmental sensor sweep.  Blocking (worst ~0.5 s), so
@@ -674,7 +669,12 @@ mod app {
                 if ota_protocol::is_ota_message(&msg.data) {
                     // Route to OTA handler
                     if let Some(response) = ota.handle_message(&msg.data, flash) {
-                        mesh.send(&response.data[..response.len], msg.source, BROADCAST_LIFETIME).ok();
+                        mesh.send(
+                            &response.data[..response.len],
+                            msg.source,
+                            BROADCAST_LIFETIME,
+                        )
+                        .ok();
                     }
                     // Show OTA progress on display if available
                     if *display_ok {
@@ -683,9 +683,14 @@ mod app {
                             let mut line_buf = [0u8; 16];
                             let line = super::format_pct(&mut line_buf, pct);
                             display.clear(BinaryColor::Off).ok();
-                            Text::with_baseline(line, Point::new(5, 64/2), text_style, Baseline::Middle)
-                                .draw(display)
-                                .ok();
+                            Text::with_baseline(
+                                line,
+                                Point::new(5, 64 / 2),
+                                text_style,
+                                Baseline::Middle,
+                            )
+                            .draw(display)
+                            .ok();
                             if display.flush().is_err() {
                                 rprintln!("I2C display lost");
                                 *display_ok = false;
@@ -713,14 +718,19 @@ mod app {
                         let mut send_header: [u8; LEN] = *b"In:                             ";
 
                         let offset = 4;
-                        let len = text.len().min(LEN-offset);
+                        let len = text.len().min(LEN - offset);
 
-                        send_header[offset..offset+len].copy_from_slice(text.as_bytes());
+                        send_header[offset..offset + len].copy_from_slice(text.as_bytes());
 
                         display.clear(BinaryColor::Off).ok();
-                        Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"), Point::new(5, 64/2), text_style, Baseline::Middle)
-                            .draw(display)
-                            .ok();
+                        Text::with_baseline(
+                            core::str::from_utf8(&send_header).unwrap_or("UTF8 Error Receiving"),
+                            Point::new(5, 64 / 2),
+                            text_style,
+                            Baseline::Middle,
+                        )
+                        .draw(display)
+                        .ok();
                         if display.flush().is_err() {
                             rprintln!("I2C display lost");
                             *display_ok = false;
@@ -754,7 +764,12 @@ mod app {
                 let message: &[u8] = b"hello";
 
                 tx_count += 1;
-                match mesh.broadcast(core::str::from_utf8(message).unwrap_or("UTF8 Message Error").as_bytes(), BROADCAST_LIFETIME) {
+                match mesh.broadcast(
+                    core::str::from_utf8(message)
+                        .unwrap_or("UTF8 Message Error")
+                        .as_bytes(),
+                    BROADCAST_LIFETIME,
+                ) {
                     Ok(()) => {
                         rprintln!("TX #{}", tx_count);
                     }
@@ -771,14 +786,19 @@ mod app {
                     let mut send_header: [u8; LEN] = *b"Out:                            ";
 
                     let offset = 5;
-                    let len = message.len().min(LEN-offset);
+                    let len = message.len().min(LEN - offset);
 
-                    send_header[offset..offset+len].copy_from_slice(&message[..len]);
+                    send_header[offset..offset + len].copy_from_slice(&message[..len]);
 
                     display.clear(BinaryColor::Off).ok();
-                    Text::with_baseline(core::str::from_utf8(&send_header).unwrap_or("Error decoding"), Point::new(5, 64/2), text_style, Baseline::Middle)
-                        .draw(display)
-                        .ok();
+                    Text::with_baseline(
+                        core::str::from_utf8(&send_header).unwrap_or("Error decoding"),
+                        Point::new(5, 64 / 2),
+                        text_style,
+                        Baseline::Middle,
+                    )
+                    .draw(display)
+                    .ok();
                     if display.flush().is_err() {
                         rprintln!("I2C display lost");
                         *display_ok = false;

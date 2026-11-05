@@ -12,7 +12,9 @@ use core::ptr;
 use flash_layout::boot_state::{
     BOOT_OK, PROGRESS_ADDR, REVERT_PENDING, SWAP_COMPLETE, SWAP_PENDING,
 };
-use flash_layout::{ACTIVE_BASE, ACTIVE_PAGES, DFU_BASE, FLASH_BASE, PAGE_SIZE, SCRATCH_BASE, STATE_ADDR};
+use flash_layout::{
+    ACTIVE_BASE, ACTIVE_PAGES, DFU_BASE, FLASH_BASE, PAGE_SIZE, SCRATCH_BASE, STATE_ADDR,
+};
 
 // -- STM32WLE5 flash register addresses --------------------------------------
 
@@ -37,9 +39,7 @@ const FLASH_KEY2: u32 = 0xCDEF_89AB;
 /// Wait until flash is not busy.
 #[inline(never)]
 fn flash_wait() {
-    unsafe {
-        while ptr::read_volatile(FLASH_SR) & FLASH_SR_BSY != 0 {}
-    }
+    unsafe { while ptr::read_volatile(FLASH_SR) & FLASH_SR_BSY != 0 {} }
 }
 
 /// Unlock the flash for programming/erase. No-op if already unlocked.

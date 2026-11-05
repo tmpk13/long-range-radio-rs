@@ -49,11 +49,7 @@ impl MeshNode {
     ///
     /// Must be called frequently in the main loop.  Handles receiving,
     /// forwarding, and transmitting queued packets.
-    pub fn update<R: PacketRadio>(
-        &mut self,
-        io: &mut LoraIo<R>,
-        current_time_ms: u32,
-    ) {
+    pub fn update<R: PacketRadio>(&mut self, io: &mut LoraIo<R>, current_time_ms: u32) {
         // NodeUpdateError only reports queue-full conditions, which
         // are non-fatal - just means some packets were dropped.
         let _ = self.node.update(io, current_time_ms);
@@ -67,30 +63,19 @@ impl MeshNode {
     ///
     /// `dest` must be 1-255.  `lifetime` is the hop count (how many
     /// times the packet can be forwarded).
-    pub fn send(
-        &mut self,
-        data: &[u8],
-        dest: u8,
-        lifetime: LifeTimeType,
-    ) -> Result<(), SendError> {
-        let dest_addr =
-            NonZeroU8::new(dest).expect("destination address must be 1-255");
+    pub fn send(&mut self, data: &[u8], dest: u8, lifetime: LifeTimeType) -> Result<(), SendError> {
+        let dest_addr = NonZeroU8::new(dest).expect("destination address must be 1-255");
         let mut pkt_data = PacketDataBytes::new();
         pkt_data
             .extend_from_slice(data)
             .map_err(|_| SendError::SendingQueueIsFull)?;
-        self.node
-            .send_to_exact(pkt_data, dest_addr, lifetime, true)
+        self.node.send_to_exact(pkt_data, dest_addr, lifetime, true)
     }
 
     /// Queue a broadcast message to all reachable nodes.
     ///
     /// `lifetime` is the hop count.
-    pub fn broadcast(
-        &mut self,
-        data: &[u8],
-        lifetime: LifeTimeType,
-    ) -> Result<(), SendError> {
+    pub fn broadcast(&mut self, data: &[u8], lifetime: LifeTimeType) -> Result<(), SendError> {
         let mut pkt_data = PacketDataBytes::new();
         pkt_data
             .extend_from_slice(data)
