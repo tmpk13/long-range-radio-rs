@@ -172,11 +172,20 @@ fixed (pad 21 is on GND):
   it through its pins.
 - M5: U7 can put the boost onto VBUS. The firmware holds USB_VOUT_EN (PA4)
   low and never sets it.
+- Not in the review: the buck-forest XRCGB32M000F1S1DR0 footprint (Y2,
+  also on CH572D-Module) is Murata's bottom view drawn as the top view.
+  The crystal terminals are one diagonal; the other two pads are joined
+  by a strip on the package. The footprint puts XI/XO on that strip's
+  diagonal, so XI-XO is a short and the crystal sits across GND. Check:
+  XI to XO reads open, unpowered. Rework: turn the crystal 90 degrees;
+  the recommended land pattern still overlaps each terminal by about
+  70%. Library fix: pads 1 and 3 at (-0.675, 0.5) and (0.675, -0.5),
+  then reroute XI/XO.
 
 ## First bring-up
 
-Step 1 has passed on the first board (2026-11-03); step 3 is stuck there
-(2026-11-04, see its notes); the rest has not run on hardware yet. In
+Step 1 has passed on the first board (2026-11-03); step 3 found Y2's
+footprint mirrored (2026-11-04); the rest has not run on hardware yet. In
 order:
 
 1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
@@ -206,13 +215,11 @@ order:
    pull-up ("Getting back into the bootloader", method 2) and plug in:
    `lsusb` shows 4348:55e0 or 1a86:55e0. `mise run ch572-flash`, then
    remove the pull-up.
-   - First board, replacement chip: VDD33 3.3 V, so it draws at least
-     1.13 mA where the first chip drew 0.33 mA. D+ 2.5 V with the pull-up,
-     and the host logs a full-speed attach with -71 errors. No change
-     after removing C26/C27, reflowing Y2 and adding 2.2 uF + 100 nF on
-     VDD33; no 32 MHz seen on XO, probe setup unconfirmed. Suspects: an
-     open joint on D+ or D- (U9 pins 11/12, or one row of J1), or Y2 not
-     oscillating (see Clock).
+   - First board: D+ 2.5 V with the pull-up and a full-speed attach with
+     -71 errors, because the chip had no clock. Y2's footprint is mirrored
+     (Board issues), so XI and XO were shorted (0.6 ohm). Removing C26/C27,
+     adding 2.2 uF + 100 nF on VDD33 and flipping the plug changed
+     nothing, as expected.
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
