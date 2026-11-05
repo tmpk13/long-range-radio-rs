@@ -8,8 +8,7 @@ use panic_halt as _;
 #[macro_use]
 extern crate sx1262_mesh_rs;
 
-/// RF frequency in Hz (915 MHz ISM band).
-const RF_FREQ: u32 = 915_000_000;
+use sx1262_mesh_rs::config::RF_FREQ;
 
 mod uart_proto;
 

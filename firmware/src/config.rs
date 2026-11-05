@@ -76,6 +76,10 @@ pub const RX_BOOST: bool = match option_env!("RX_BOOST") {
     },
 };
 
+/// Carrier frequency in Hz: 915 MHz, in the 902-928 MHz ISM band.  Every node
+/// and the basestation must use the same one, so both apps take it from here.
+pub const RF_FREQ: u32 = 915_000_000;
+
 /// Polling loop timeout for TX completion (ms).
 ///
 /// `send()` blocks polling the IRQ register until `TxDone` fires or this

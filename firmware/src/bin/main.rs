@@ -7,8 +7,7 @@ use panic_halt as _;
 #[macro_use]
 extern crate sx1262_mesh_rs;
 
-/// RF frequency in Hz (915 MHz ISM band).
-const RF_FREQ: u32 = 915_000_000;
+use sx1262_mesh_rs::config::RF_FREQ;
 
 /// Format "OTA XX%" into a buffer, returning the str slice.
 fn format_pct(buf: &mut [u8; 16], pct: u32) -> &str {
