@@ -1,7 +1,7 @@
 //! Independent Watchdog (IWDG) driver for boot safety.
 //!
 //! The IWDG runs from the LSI oscillator (~32 kHz) and is independent of the
-//! main system clock.  Once started it **cannot be stopped** — this is by
+//! main system clock.  Once started it **cannot be stopped** - this is by
 //! design and ensures that a stuck firmware will always reset.
 //!
 //! Usage:
@@ -26,12 +26,12 @@ const KEY_UNLOCK: u16 = 0x5555;
 /// ~500 Hz, giving a maximum timeout of ~8 s (reload 0xFFF = 4095).
 ///
 /// Common values:
-/// - 5000 ms → reload ≈ 2500
-/// - 8000 ms → reload ≈ 4000
+/// - 5000 ms -> reload ~ 2500
+/// - 8000 ms -> reload ~ 4000
 ///
 /// Clamps to the hardware maximum of 4095.
 pub fn start(iwdg: &pac::IWDG, timeout_ms: u32) {
-    // Compute reload value: LSI ≈ 32 kHz, prescaler = 64 → tick = 500 Hz
+    // Compute reload value: LSI ~ 32 kHz, prescaler = 64 -> tick = 500 Hz
     let ticks = (timeout_ms * 500) / 1000;
     let reload = ticks.min(4095) as u16;
 
@@ -69,8 +69,8 @@ pub fn feed(iwdg: &pac::IWDG) {
 /// cannot reach the peripheral: the blocking LoRa transmit and the SD card
 /// transfers.  Both carry their own deadline, so feeding from inside them
 /// says "still waiting on something that will time out", not "trust me".
-/// Loops with no deadline of their own — [`Sx1262Driver::wait_on_busy`] in
-/// particular — are deliberately left unfed, because a radio that never
+/// Loops with no deadline of their own - [`Sx1262Driver::wait_on_busy`] in
+/// particular - are deliberately left unfed, because a radio that never
 /// releases BUSY is exactly what the watchdog is for.
 ///
 /// [`Sx1262Driver::wait_on_busy`]: crate::radio::Sx1262Driver

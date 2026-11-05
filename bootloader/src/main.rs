@@ -5,7 +5,7 @@ use panic_halt as _;
 
 use core::ptr;
 
-// ── Flash / partition constants ──────────────────────────────────────────────
+// -- Flash / partition constants ----------------------------------------------
 
 /// STM32WLE5 flash page size (2 KB).
 const PAGE_SIZE: u32 = 2048;
@@ -13,11 +13,11 @@ const PAGE_SIZE: u32 = 2048;
 /// Base address of internal flash.
 const FLASH_BASE: u32 = 0x0800_0000;
 
-/// ACTIVE partition: pages 8–63  (112 KB, 56 pages).
+/// ACTIVE partition: pages 8-63  (112 KB, 56 pages).
 const ACTIVE_BASE: u32 = FLASH_BASE + 8 * PAGE_SIZE; // 0x0800_4000
 const ACTIVE_PAGES: u32 = 56;
 
-/// DFU partition: pages 64–120  (114 KB, 57 pages — last page is scratch).
+/// DFU partition: pages 64-120  (114 KB, 57 pages - last page is scratch).
 const DFU_BASE: u32 = FLASH_BASE + 64 * PAGE_SIZE; // 0x0802_0000
 const SCRATCH_PAGE: u32 = DFU_BASE + 56 * PAGE_SIZE; // page 120
 
@@ -35,7 +35,7 @@ const REVERT_PENDING: u32 = 0x5245_5654;
 // 0xFFFF_FFFF (erased flash) means "start from 0".
 const PROGRESS_ADDR: u32 = STATE_ADDR + 4;
 
-// ── STM32WLE5 flash register addresses ──────────────────────────────────────
+// -- STM32WLE5 flash register addresses --------------------------------------
 
 const FLASH_REGS: u32 = 0x5800_4000;
 const FLASH_KEYR: *mut u32 = (FLASH_REGS + 0x08) as *mut u32;
@@ -53,7 +53,7 @@ const FLASH_CR_PNB_SHIFT: u32 = 3; // page number bits [10:3]
 const FLASH_KEY1: u32 = 0x4567_0123;
 const FLASH_KEY2: u32 = 0xCDEF_89AB;
 
-// ── Low-level flash helpers ─────────────────────────────────────────────────
+// -- Low-level flash helpers -------------------------------------------------
 
 /// Wait until flash is not busy.
 #[inline(never)]
@@ -81,7 +81,7 @@ fn flash_lock() {
     }
 }
 
-/// Erase a single flash page by absolute page number (0–127).
+/// Erase a single flash page by absolute page number (0-127).
 fn flash_erase_page(page: u32) {
     unsafe {
         flash_wait();
@@ -138,7 +138,7 @@ fn flash_read_u32(addr: u32) -> u32 {
     unsafe { ptr::read_volatile(addr as *const u32) }
 }
 
-// ── Page-level copy helpers ─────────────────────────────────────────────────
+// -- Page-level copy helpers -------------------------------------------------
 
 /// Page buffer in RAM used for copying. Must be 8-byte aligned.
 #[repr(align(8))]
@@ -168,7 +168,7 @@ fn copy_page(src_addr: u32, dst_addr: u32) {
     }
 }
 
-// ── State helpers ───────────────────────────────────────────────────────────
+// -- State helpers -----------------------------------------------------------
 
 fn read_state() -> u32 {
     flash_read_u32(STATE_ADDR)
@@ -192,25 +192,25 @@ fn write_state(state: u32, progress: u32) {
     flash_program(STATE_ADDR, &dw);
 }
 
-// ── Swap logic ──────────────────────────────────────────────────────────────
+// -- Swap logic --------------------------------------------------------------
 
-/// Perform a power-fail-safe swap of ACTIVE ↔ DFU.
+/// Perform a power-fail-safe swap of ACTIVE <-> DFU.
 ///
 /// For each page i (starting from `start_page`):
-///   1. Copy ACTIVE[i] → scratch
-///   2. Copy DFU[i]    → ACTIVE[i]
-///   3. Copy scratch    → DFU[i]
+///   1. Copy ACTIVE[i] -> scratch
+///   2. Copy DFU[i]    -> ACTIVE[i]
+///   3. Copy scratch    -> DFU[i]
 ///   4. Update progress to i+1
 fn swap_partitions(start_page: u32) {
     for i in start_page..ACTIVE_PAGES {
         let active_addr = ACTIVE_BASE + i * PAGE_SIZE;
         let dfu_addr = DFU_BASE + i * PAGE_SIZE;
 
-        // ACTIVE[i] → scratch
+        // ACTIVE[i] -> scratch
         copy_page(active_addr, SCRATCH_PAGE);
-        // DFU[i] → ACTIVE[i]
+        // DFU[i] -> ACTIVE[i]
         copy_page(dfu_addr, active_addr);
-        // scratch → DFU[i]
+        // scratch -> DFU[i]
         copy_page(SCRATCH_PAGE, dfu_addr);
 
         // Persist progress so we can resume after power loss
@@ -229,7 +229,7 @@ fn revert_partitions(start_page: u32) {
     }
 }
 
-// ── Jump to application ─────────────────────────────────────────────────────
+// -- Jump to application -----------------------------------------------------
 
 /// Set VTOR and jump to the application in the ACTIVE partition.
 ///
@@ -258,7 +258,7 @@ unsafe fn jump_to_app() -> ! {
     )
 }
 
-// ── Entry point ─────────────────────────────────────────────────────────────
+// -- Entry point -------------------------------------------------------------
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -278,12 +278,12 @@ fn main() -> ! {
             write_state(BOOT_OK, 0xFFFF_FFFF);
         }
         SWAP_COMPLETE => {
-            // New firmware booted but never confirmed → revert
+            // New firmware booted but never confirmed -> revert
             revert_partitions(0);
             write_state(BOOT_OK, 0xFFFF_FFFF);
         }
         _ => {
-            // BOOT_OK or erased (0xFFFF_FFFF) → normal boot
+            // BOOT_OK or erased (0xFFFF_FFFF) -> normal boot
         }
     }
 

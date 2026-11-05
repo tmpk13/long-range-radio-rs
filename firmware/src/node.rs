@@ -27,7 +27,7 @@ pub struct MeshNode {
 impl MeshNode {
     /// Create a new mesh node.
     ///
-    /// `address` must be 1–255 (0 is reserved for broadcast).
+    /// `address` must be 1-255 (0 is reserved for broadcast).
     /// `listen_period_ms` is how long the node listens before
     /// transmitting queued packets.
     ///
@@ -55,7 +55,7 @@ impl MeshNode {
         current_time_ms: u32,
     ) {
         // NodeUpdateError only reports queue-full conditions, which
-        // are non-fatal — just means some packets were dropped.
+        // are non-fatal - just means some packets were dropped.
         let _ = self.node.update(io, current_time_ms);
         // embedded-nano-mesh only calls write() on the IO, never flush().
         // flush() is what triggers actual radio transmission, so we must
@@ -65,7 +65,7 @@ impl MeshNode {
 
     /// Queue a message for a specific destination node.
     ///
-    /// `dest` must be 1–255.  `lifetime` is the hop count (how many
+    /// `dest` must be 1-255.  `lifetime` is the hop count (how many
     /// times the packet can be forwarded).
     pub fn send(
         &mut self,
@@ -107,8 +107,8 @@ impl MeshNode {
             // The library does not expose the real data_length field, so
             // for text payloads we truncate at the first null byte.
             //
-            // OTA messages (type 0xF0–0xF6) carry binary firmware data
-            // that legitimately contains 0x00 bytes — do NOT truncate
+            // OTA messages (type 0xF0-0xF6) carry binary firmware data
+            // that legitimately contains 0x00 bytes - do NOT truncate
             // those.  Each OTA message type encodes its own length.
             let is_binary = matches!(pkt.data.first(), Some(0xF0..=0xF6));
             if !is_binary {

@@ -18,7 +18,7 @@ const BUF_SIZE: usize = 64;
 pub enum IoError {
     /// The underlying radio operation failed.
     Radio,
-    /// Write buffer overflow — packet too large.
+    /// Write buffer overflow - packet too large.
     BufferFull,
 }
 

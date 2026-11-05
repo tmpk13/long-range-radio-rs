@@ -15,7 +15,7 @@ mod uart_proto;
 
 use core::cell::UnsafeCell;
 
-// ── Static page buffer for DFU writes (avoid stack overflow) ───────────────
+// -- Static page buffer for DFU writes (avoid stack overflow) ---------------
 
 const PAGE_SIZE: usize = 2048;
 
@@ -31,14 +31,14 @@ fn page_buf_mut() -> &'static mut [u8; PAGE_SIZE] {
     unsafe { &mut *DFU_PAGE_BUF.0.get() }
 }
 
-// ── Flash constants ────────────────────────────────────────────────────────
+// -- Flash constants --------------------------------------------------------
 
 const FLASH_PAGE_SIZE: u32 = 2048;
 const DFU_PAGE_START: u8 = 64;
 const MAX_FW_SIZE: u32 = 56 * FLASH_PAGE_SIZE; // 112 KB
 
 /*
-    Basestation Node — Seeed Wio-E5 (STM32WLE5JC)
+    Basestation Node - Seeed Wio-E5 (STM32WLE5JC)
 
     Single UART connection to the host, 115200 8N1.
     All commands (OTA + data relay) are multiplexed on one link.
@@ -228,13 +228,13 @@ mod app {
         let mut next_progress = Mono::now() + progress_interval;
 
         loop {
-            // ── 1. Feed watchdog ────────────────────────────────────────
+            // -- 1. Feed watchdog ----------------------------------------
             watchdog::feed(iwdg);
 
-            // ── 2. Drive mesh protocol ──────────────────────────────────
+            // -- 2. Drive mesh protocol ----------------------------------
             mesh.update(io, sx1262_mesh_rs::platform::millis());
 
-            // ── 3. Poll UART for host commands ──────────────────────────
+            // -- 3. Poll UART for host commands --------------------------
             loop {
                 match uart.read() {
                     Ok(byte) => {
@@ -252,7 +252,7 @@ mod app {
                 }
             }
 
-            // ── 4. Process received mesh messages ───────────────────────
+            // -- 4. Process received mesh messages -----------------------
             if let Some(msg) = mesh.receive() {
                 if ota_protocol::is_ota_message(&msg.data) {
                     // Route OTA responses to sender
@@ -272,7 +272,7 @@ mod app {
                         *state = BsState::Idle;
                     }
                 } else {
-                    // Regular message — forward to host
+                    // Regular message - forward to host
                     let src = msg.source;
                     let rssi = io.last_rssi();
                     let rssi_bytes = rssi.to_le_bytes();
@@ -292,7 +292,7 @@ mod app {
                 }
             }
 
-            // ── 5. Drive OTA sender (send next chunk over mesh) ─────────
+            // -- 5. Drive OTA sender (send next chunk over mesh) ---------
             if let Some(sender) = ota_sender.as_mut()
                 && let BsState::Transferring { target_addr } = state
                 && let Some(msg) = sender.next_message()
@@ -300,7 +300,7 @@ mod app {
                 mesh.send(&msg.data[..msg.len], *target_addr, BROADCAST_LIFETIME).ok();
             }
 
-            // ── 6. Periodic progress reporting ──────────────────────────
+            // -- 6. Periodic progress reporting --------------------------
             if Mono::now() >= next_progress {
                 next_progress = Mono::now() + progress_interval;
 
@@ -345,7 +345,7 @@ mod app {
         }
     }
 
-    // ── Command handler (OTA + data relay, single UART) ─────────────────────
+    // -- Command handler (OTA + data relay, single UART) ---------------------
 
     #[allow(clippy::large_stack_frames)]
     fn handle_cmd(
@@ -359,7 +359,7 @@ mod app {
         tx: &mut FrameBuf,
     ) {
         match cmd_id {
-            // ── OTA commands ────────────────────────────────────────────
+            // -- OTA commands --------------------------------------------
             cmd::START_OTA => {
                 if !matches!(state, BsState::Idle) {
                     tx.build(resp::NAK, &[err::INVALID_STATE]);
@@ -582,7 +582,7 @@ mod app {
                 uart_send(uart, tx.as_bytes());
             }
 
-            // ── Data relay commands ─────────────────────────────────────
+            // -- Data relay commands -------------------------------------
             cmd::SEND_MSG => {
                 if payload.len() < 2 {
                     tx.build(resp::NAK, &[err::BAD_FRAME]);
@@ -628,7 +628,7 @@ mod app {
         }
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    // -- Helpers -------------------------------------------------------------
 
     /// Write a page buffer to flash at the given page index.
     fn write_page_to_flash(flash_periph: &mut FLASH, page_idx: u8) -> bool {

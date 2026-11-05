@@ -49,11 +49,11 @@ pub fn write(flash_periph: &mut pac::FLASH, state: u32) {
 /// Mark the current firmware as successfully booted.
 ///
 /// Call this from the application after confirming the system is healthy
-/// (e.g., radio initialised).  If this is never called before a reset,
+/// (e.g., radio initialized).  If this is never called before a reset,
 /// the bootloader will revert to the previous firmware.
 pub fn confirm_boot(flash: &mut pac::FLASH) {
     let current = read();
-    // Only write if not already BOOT_OK — avoid unnecessary flash wear.
+    // Only write if not already BOOT_OK - avoid unnecessary flash wear.
     if current != BOOT_OK {
         write(flash, BOOT_OK);
     }

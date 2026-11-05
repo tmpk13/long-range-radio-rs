@@ -4,7 +4,7 @@
 
 When sending, the packet params must be set with the **actual payload length**
 and the **full set of LoRa params** (header type, invert IQ, etc.) to match
-init config — not just length and CRC. Omitting fields caused the chip to
+init config - not just length and CRC. Omitting fields caused the chip to
 enter TX but never fire TxDone, producing a 4s+ spin before timeout.
 
 ## Async / Non-Blocking TX
@@ -20,12 +20,12 @@ help because the layer above it still blocks. A proper fix would require:
 The practical fix is keeping the blocking model with a short TX timeout
 (~500 ms for SF7/BW125 which completes in <100 ms in practice).
 
-## Seeed XIAO SX1262 Module — TCXO Required
+## Seeed XIAO SX1262 Module - TCXO Required
 
 The Seeed XIAO SX1262 module uses a TCXO (temperature-compensated crystal
 oscillator) powered via DIO3. If `tcxo_opts` is set to `None` in the sx126x
-config, the radio initialises successfully (SPI works, chip enters StbyRC,
-no calibration errors) but **can never transmit or receive RF** — the PLL has
+config, the radio initializes successfully (SPI works, chip enters StbyRC,
+no calibration errors) but **can never transmit or receive RF** - the PLL has
 no reference clock.
 
 Symptom: every TX times out, `tx_good` stays 0, `rx_good` stays 0.
@@ -36,15 +36,15 @@ The 1.8 V / 10 ms values are correct for the Seeed module.
 ## Diagnosing a Dead Radio (all-0xFF SPI responses)
 
 If `get_status()` returns `0b11111111` and all error flags are true, the SX1262
-is not responding over SPI at all — MISO is floating high. Common causes:
+is not responding over SPI at all - MISO is floating high. Common causes:
 
-1. Module not seated — reseat it physically
+1. Module not seated - reseat it physically
 2. Wrong board flashed (binary for a different address/config)
-3. Genuine hardware fault — swap the module between boards to isolate
+3. Genuine hardware fault - swap the module between boards to isolate
 
 A healthy init shows `chip_mode: Some(StbyRC)` with all error flags false.
 
-## sx126x Crate: Missing wait_on_busy() — TxDone Never Fires
+## sx126x Crate: Missing wait_on_busy() - TxDone Never Fires
 
 The sx126x 0.3.0 crate's `set_standby()`, `set_tx()`, and `set_rx()` do **not**
 call `wait_on_busy()` internally. The SX1262 datasheet states that any SPI
@@ -52,7 +52,7 @@ command sent while BUSY is high is silently ignored by the chip.
 
 Critical path in `send()`:
 
-1. `set_tx()` is issued — the chip starts TCXO startup (10 ms per
+1. `set_tx()` is issued - the chip starts TCXO startup (10 ms per
    `tcxo_opts`) with BUSY high.
 2. Without `wait_on_busy()`, the polling loop immediately calls
    `get_irq_status()` while BUSY is still high.
@@ -66,7 +66,7 @@ secondary indicator that the chip was still busy when the status was read.
 
 Fix: call `self.radio.wait_on_busy()` after `set_standby()`, after `set_tx()`
 (before the IRQ polling loop), and after `set_rx()` wherever it is called.
-The same applies to `poll_recv()` — wait after `set_rx()` before reading IRQ.
+The same applies to `poll_recv()` - wait after `set_rx()` before reading IRQ.
 
 ## stm32wlxx-hal SubGhz API Reference (v0.6.1)
 
@@ -206,10 +206,10 @@ CfgIrq::new()
 ```
 
 **NVIC helpers:**
-- `subghz::unmask_irq()` — unmask SubGHz IRQ in NVIC (unsafe)
-- `subghz::mask_irq()` — mask SubGHz IRQ in NVIC
-- `subghz::rfbusys()` / `rfbusyms()` — check radio busy
-- `subghz::wakeup()` — wake from sleep (unsafe)
+- `subghz::unmask_irq()` - unmask SubGHz IRQ in NVIC (unsafe)
+- `subghz::mask_irq()` - mask SubGHz IRQ in NVIC
+- `subghz::rfbusys()` / `rfbusyms()` - check radio busy
+- `subghz::wakeup()` - wake from sleep (unsafe)
 
 ### RTIC Integration Notes
 
@@ -222,25 +222,25 @@ PAC is `SUBGHZ_RADIO`.
 
 ### Key Status Methods
 
-- `sg.status()` — radio state (has documented HW bugs)
-- `sg.irq_status()` -> `(Status, u16)` — IRQ flags
+- `sg.status()` - radio state (has documented HW bugs)
+- `sg.irq_status()` -> `(Status, u16)` - IRQ flags
 - `sg.rx_buffer_status()` -> `(Status, payload_len, buffer_ptr)`
 - `sg.lora_packet_status()` -> `LoRaPacketStatus` (RSSI, SNR)
 - `sg.rssi_inst()` -> instantaneous RSSI in dBm
 - `sg.op_error()` -> operational error flags
 - `sg.fsk_packet_status()`, `sg.fsk_stats()`, `sg.lora_stats()`
-- `sg.reset_stats()` — clear cumulative stats
+- `sg.reset_stats()` - clear cumulative stats
 
 ### Other Useful Methods
 
-- `sg.set_sleep(SleepCfg)` — enter sleep (unsafe, 500us NSS hold-off)
-- `sg.set_fs()` — frequency synthesis test mode
-- `sg.set_rx_duty_cycle(rx_period, sleep_period)` — duty-cycled RX
-- `sg.set_cad()` / `sg.set_cad_params(&CadParams)` — channel activity detection
-- `sg.set_tx_rx_fallback_mode(FallbackMode)` — auto-mode after TX/RX
-- `sg.set_pa_ocp(Ocp)` — over-current protection
-- `sg.set_rx_gain(PMode)` — RX gain control
-- `sg.free()` -> `(SPI3, MISO, MOSI)` — return peripherals
+- `sg.set_sleep(SleepCfg)` - enter sleep (unsafe, 500us NSS hold-off)
+- `sg.set_fs()` - frequency synthesis test mode
+- `sg.set_rx_duty_cycle(rx_period, sleep_period)` - duty-cycled RX
+- `sg.set_cad()` / `sg.set_cad_params(&CadParams)` - channel activity detection
+- `sg.set_tx_rx_fallback_mode(FallbackMode)` - auto-mode after TX/RX
+- `sg.set_pa_ocp(Ocp)` - over-current protection
+- `sg.set_rx_gain(PMode)` - RX gain control
+- `sg.free()` -> `(SPI3, MISO, MOSI)` - return peripherals
 
 
 

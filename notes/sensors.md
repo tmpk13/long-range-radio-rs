@@ -2,7 +2,7 @@
 
 ## I2C Display Resilience (Non-Blocking / Hot-Plug)
 
-The stm32wlxx-hal I2C driver has **no software timeout** — its internal
+The stm32wlxx-hal I2C driver has **no software timeout** - its internal
 `busy_wait!` macro spins indefinitely until a hardware flag fires. When
 a device is simply absent (not ACKed), the peripheral's NACK detection
 sets the NACKF flag and the driver returns `Error::Nack` quickly. If the
@@ -20,7 +20,7 @@ fails mid-operation:
 - Every 10 s, if `!display_ok`, the loop re-attempts `display.init()`
   + `flush()`. On success the flag is set and normal display updates
   resume.
-- All draw/clear/flush calls are gated behind `if *display_ok { … }`,
+- All draw/clear/flush calls are gated behind `if *display_ok { ... }`,
   so a missing display adds zero I2C traffic to the bus.
 
 This pattern generalises to multiple I2C devices: give each device its

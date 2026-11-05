@@ -18,7 +18,7 @@ import serial
 SYNC = 0xAA
 MAX_PAYLOAD = 256
 
-# ── Command IDs ─────────────────────────────────────────────────────────────
+# -- Command IDs -------------------------------------------------------------
 
 # Host -> Basestation (OTA)
 CMD_START_OTA = 0x01
@@ -54,7 +54,7 @@ ERR_NO_FW_DATA = 0x05
 ERR_CRC_MISMATCH = 0x06
 
 
-# ── CRC-8 ───────────────────────────────────────────────────────────────────
+# -- CRC-8 -------------------------------------------------------------------
 
 def crc8(data: bytes) -> int:
     """CRC-8 with polynomial 0x07 (CRC-8/ITU)."""
@@ -69,7 +69,7 @@ def crc8(data: bytes) -> int:
     return crc
 
 
-# ── Frame building / parsing ────────────────────────────────────────────────
+# -- Frame building / parsing ------------------------------------------------
 
 def build_frame(cmd: int, payload: bytes = b"") -> bytes:
     """Build a complete UART frame."""
@@ -124,7 +124,7 @@ def parse_frame(ser: serial.Serial, timeout: float = 2.0) -> Frame | None:
     return Frame(cmd=cmd, payload=payload)
 
 
-# ── High-level protocol wrapper ─────────────────────────────────────────────
+# -- High-level protocol wrapper ---------------------------------------------
 
 class BasestationError(Exception):
     pass

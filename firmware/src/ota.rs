@@ -14,12 +14,12 @@ use stm32wlxx_hal::pac;
 use crate::config::FIRMWARE_VERSION;
 use crate::ota_protocol::{self, msg, reason, OtaChunk, OtaChunkAck, OtaOffer};
 
-// ── Flash / partition constants ─────────────────────────────────────────────
+// -- Flash / partition constants ---------------------------------------------
 
 const FLASH_BASE: u32 = 0x0800_0000;
 const PAGE_SIZE: u32 = 2048;
 
-/// DFU staging partition: pages 64–119 (56 data pages, matching ACTIVE size).
+/// DFU staging partition: pages 64-119 (56 data pages, matching ACTIVE size).
 const DFU_BASE: u32 = FLASH_BASE + 64 * PAGE_SIZE; // 0x0802_0000
 
 /// First DFU page index.
@@ -34,7 +34,7 @@ const MAX_FW_SIZE: u32 = 56 * PAGE_SIZE;
 /// single packet is ~6.6 s on the air.
 const TRANSFER_IDLE_TIMEOUT_MS: u32 = 60_000;
 
-// ── Page buffer (static to avoid stack overflow) ────────────────────────────
+// -- Page buffer (static to avoid stack overflow) ----------------------------
 
 const PAGE_BUF_SIZE: usize = PAGE_SIZE as usize;
 
@@ -42,7 +42,7 @@ struct StaticPageBuf(UnsafeCell<[u8; PAGE_BUF_SIZE]>);
 unsafe impl Sync for StaticPageBuf {}
 static PAGE_BUF: StaticPageBuf = StaticPageBuf(UnsafeCell::new([0xFF; PAGE_BUF_SIZE]));
 
-// ── OTA state ───────────────────────────────────────────────────────────────
+// -- OTA state ---------------------------------------------------------------
 
 /// Receiving-state metadata.
 struct Receiving {
@@ -173,17 +173,17 @@ impl OtaReceiver {
             rx.last_ms = crate::platform::millis();
         }
 
-        // Duplicate or old chunk — re-ACK.
+        // Duplicate or old chunk - re-ACK.
         if chunk.index < next_chunk {
             return Some(make_ack(chunk.index, next_chunk));
         }
 
-        // Out-of-order — request what we actually need.
+        // Out-of-order - request what we actually need.
         if chunk.index > next_chunk {
             return Some(make_ack(chunk.index, next_chunk));
         }
 
-        // Correct next chunk — copy data into page buffer.
+        // Correct next chunk - copy data into page buffer.
         let data_len = chunk.data_len as usize;
 
         let rx = match &mut self.state {
@@ -340,7 +340,7 @@ impl OtaReceiver {
     }
 }
 
-// ── Free functions ──────────────────────────────────────────────────────────
+// -- Free functions ----------------------------------------------------------
 
 /// Compute CRC32 over `size` bytes starting at `base_addr` in flash.
 fn compute_crc32(base_addr: u32, size: u32) -> u32 {

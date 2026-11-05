@@ -1,9 +1,9 @@
-//! UART frame protocol for basestation ↔ host communication.
+//! UART frame protocol for basestation <-> host communication.
 //!
 //! Frame format:
 //!   `[SYNC 0xAA] [LEN_LO] [LEN_HI] [CMD] [PAYLOAD: LEN bytes] [CRC8]`
 //!
-//! LEN is the payload length only (0–256).  CRC8 covers CMD + PAYLOAD.
+//! LEN is the payload length only (0-256).  CRC8 covers CMD + PAYLOAD.
 
 /// Frame sync byte.
 pub const SYNC: u8 = 0xAA;
@@ -11,30 +11,30 @@ pub const SYNC: u8 = 0xAA;
 /// Maximum payload size per frame.
 pub const MAX_PAYLOAD: usize = 256;
 
-// ── Command IDs ────────────────────────────────────────────────────────────
+// -- Command IDs ------------------------------------------------------------
 
-/// Commands from host → basestation.
+/// Commands from host -> basestation.
 pub mod cmd {
-    // OTA commands (0x01–0x0F)
+    // OTA commands (0x01-0x0F)
     pub const START_OTA: u8 = 0x01;
     pub const FW_DATA: u8 = 0x02;
     pub const BEGIN_TRANSFER: u8 = 0x03;
     pub const QUERY_STATUS: u8 = 0x04;
     pub const ABORT_OTA: u8 = 0x05;
 
-    // Data relay commands (0x10–0x1F)
+    // Data relay commands (0x10-0x1F)
     pub const SEND_MSG: u8 = 0x10;
     pub const SEND_BROADCAST: u8 = 0x11;
 }
 
-/// Responses from basestation → host.
+/// Responses from basestation -> host.
 pub mod resp {
     pub const ACK: u8 = 0x81;
     pub const NAK: u8 = 0x82;
     pub const PROGRESS: u8 = 0x83;
     pub const OTA_DONE: u8 = 0x84;
 
-    // Data relay responses (0x90–0x9F)
+    // Data relay responses (0x90-0x9F)
     pub const RECV_MSG: u8 = 0x90;
 }
 
@@ -58,7 +58,7 @@ pub mod err {
     pub const CRC_MISMATCH: u8 = 0x06;
 }
 
-// ── CRC-8 ──────────────────────────────────────────────────────────────────
+// -- CRC-8 ------------------------------------------------------------------
 
 /// CRC-8 with polynomial 0x07 (CRC-8/ITU).
 pub fn crc8(data: &[u8]) -> u8 {
@@ -76,7 +76,7 @@ pub fn crc8(data: &[u8]) -> u8 {
     crc
 }
 
-// ── Frame parser (byte-at-a-time state machine) ────────────────────────────
+// -- Frame parser (byte-at-a-time state machine) ----------------------------
 
 #[derive(Clone, Copy)]
 enum ParseState {
@@ -152,7 +152,7 @@ impl FrameParser {
                 let computed = crc8(&self.buf[..self.expected]);
                 self.state = ParseState::Sync;
                 if computed == byte {
-                    return true; // frame ready — call frame() to read it
+                    return true; // frame ready - call frame() to read it
                 }
                 // CRC mismatch: discard frame
             }
@@ -170,7 +170,7 @@ impl FrameParser {
     }
 }
 
-// ── Frame builder (serialize outgoing frames) ──────────────────────────────
+// -- Frame builder (serialize outgoing frames) ------------------------------
 
 /// Scratch buffer for building outgoing frames.
 /// Max frame size: 1 sync + 2 len + 1 cmd + 256 payload + 1 crc = 261

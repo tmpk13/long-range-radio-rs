@@ -184,15 +184,15 @@ impl Sx1262Driver {
         }
     }
 
-    /// Initialise the radio with LoRa settings.
+    /// Initialize the radio with LoRa settings.
     ///
     /// `rf_frequency` is in Hz, e.g. `915_000_000` for 915 MHz.
     ///
     /// # Panics
     ///
-    /// Panics if the radio fails to initialise.
+    /// Panics if the radio fails to initialize.
     pub fn init(&mut self, rf_frequency: u32) {
-        debug_println!("Initialising SubGHz radio...");
+        debug_println!("Initializing SubGHz radio...");
         self.rx_active = false;
 
         // Nothing is on the air during configuration, and a live antenna
@@ -255,7 +255,7 @@ impl Sx1262Driver {
             )
             .expect("set_pa_config");
 
-        // TX params: 22 dBm, 200 µs ramp
+        // TX params: 22 dBm, 200 us ramp
         self.radio
             .set_tx_params(
                 &TxParams::new()

@@ -1,7 +1,7 @@
 # Architecture
 
 The radio driver implements a `PacketRadio` trait used by the mesh layer.
-The driver manages RX/TX state — entering continuous RX on the first poll,
+The driver manages RX/TX state - entering continuous RX on the first poll,
 transitioning to standby before TX, then polling the IRQ register for
 `TxDone` or `Timeout` rather than blocking on the DIO1 pin.
 
@@ -76,7 +76,7 @@ classDiagram
 ```
 
 The 0x1D three-way conflict between ADXL345, MCP9808 and SEN0575 is
-resolved in probe order — see the SEN0575 section.
+resolved in probe order - see the SEN0575 section.
 
 ## Pin allocation
 

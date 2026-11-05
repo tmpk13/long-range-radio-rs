@@ -1,9 +1,9 @@
 # Boot and OTA
 
-## App at 0x08004000 Boots Silent — Missing `set-vtor` Feature
+## App at 0x08004000 Boots Silent - Missing `set-vtor` Feature
 
 After moving the app from `0x0800_0000` to `0x0800_4000` (to make room for the
-bootloader), the firmware appeared dead — no RTT output, no radio, no display.
+bootloader), the firmware appeared dead - no RTT output, no radio, no display.
 The bootloader at `0x0800_0000` was correctly flashed and its `jump_to_app()`
 sets VTOR before branching.  The app worked fine when linked at `0x0800_0000`.
 
@@ -22,14 +22,14 @@ VTOR before calling `main()`:
 cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 ```
 
-Also added `cargo:rerun-if-changed=memory.x` to `build.rs` — without it,
+Also added `cargo:rerun-if-changed=memory.x` to `build.rs` - without it,
 changing the flash origin in `memory.x` doesn't trigger a relink and the
 old binary is reused.
 
-## Bootloader Linked at Wrong Address — Two-Stage Boot Silent
+## Bootloader Linked at Wrong Address - Two-Stage Boot Silent
 
 Symptom: with the normal layout (bootloader at 0x08000000, app at 0x08004000)
-nothing runs — no RTT, no fault. The app runs fine when linked directly at
+nothing runs - no RTT, no fault. The app runs fine when linked directly at
 0x08000000. Reading the RTT control block symbol in RAM (`nm ... _SEGGER_RTT`,
 then `probe-rs read <addr>`) showed the "SEGGER RTT" magic only in the direct
 build, proving the app's startup never executes via the bootloader path.
@@ -37,7 +37,7 @@ build, proving the app's startup never executes via the bootloader path.
 Root cause: `cortex-m-rt`'s `link.x` does `INCLUDE memory.x`, and the linker
 resolves that from its working directory first. Cargo runs the linker from the
 workspace root regardless of `cd`, so the bare root `memory.x` (ORIGIN
-0x08004000) shadowed every member — the bootloader linked at 0x08004000, so on
+0x08004000) shadowed every member - the bootloader linked at 0x08004000, so on
 reset the CPU booted an empty 0x08000000 and the bootloader never ran. Verified
 with `readelf -S <elf> | grep vector_table` (bootloader showed 0x08004000).
 
@@ -49,10 +49,10 @@ then the root package, kept its layout as `memory-app.x` until it moved into
 bootloader=0x08000000, app/basestation=0x08004000; flashing both then reset
 boots the app (SEGGER RTT magic present, TX heartbeats stream).
 
-## IWDG SR Wait Hangs — Silent Reset Loop (No RTT Output)
+## IWDG SR Wait Hangs - Silent Reset Loop (No RTT Output)
 
 After adding watchdog support, the firmware appeared to "do nothing" after
-flashing — no RTT output, no display, no radio activity.
+flashing - no RTT output, no display, no radio activity.
 
 Root cause: `watchdog::start()` polled `while iwdg.sr.read().bits() != 0 {}`
 which checks **all** SR bits. On STM32WL the IWDG_SR has a WVU (window
@@ -83,23 +83,23 @@ block in RAM.
 Fix: moved `page_buf` to a module-level `static` in `ota.rs`, accessed via
 `page_buf()` / `page_buf_mut()` methods. This is safe because `OtaReceiver` is
 only used from a single RTIC task on a single-core MCU. Reduced `init()` frame
-to ~8,759 bytes and `Local` from 4,128 → 2,080 bytes.
+to ~8,759 bytes and `Local` from 4,128 -> 2,080 bytes.
 
 Lesson: on embedded targets, always check `clippy::large_stack_frames` when
-adding structs with large inline buffers to RTIC `Local` — the `init()` return
+adding structs with large inline buffers to RTIC `Local` - the `init()` return
 path constructs them on the stack before moving to statics.
 
-## Basestation Node — UART Pin Selection
+## Basestation Node - UART Pin Selection
 
 The basestation uses a single UART (USART1) for all host communication via an
 RS232 TTL 3.3V FTDI adapter. OTA and data relay commands are multiplexed on the
-same link — the frame protocol has distinct command ranges (0x01–0x0F for OTA,
-0x10–0x1F for data relay) so no second UART is needed.
+same link - the frame protocol has distinct command ranges (0x01-0x0F for OTA,
+0x10-0x1F for data relay) so no second UART is needed.
 
-- **USART1** (PB6 TX, PB7 RX) — pins 10/9 on the Wio-E5 module
+- **USART1** (PB6 TX, PB7 RX) - pins 10/9 on the Wio-E5 module
 
 HSI16 (16 MHz) clock source at 115200 baud. The HAL enables HSI16 automatically
-when `uart::Clk::Hsi16` is specified — it runs independently of the MSI system
+when `uart::Clk::Hsi16` is specified - it runs independently of the MSI system
 clock.
 
 UART frame protocol: `[0xAA sync] [len_lo] [len_hi] [cmd] [payload] [crc8]`
@@ -111,7 +111,7 @@ CRC-8/ITU (poly 0x07) over cmd + payload bytes.
 does not expose the real `data_length` field (it is private).  The `receive()`
 wrapper truncated at the first null byte to recover the actual payload length.
 
-This corrupts OTA firmware chunks — binary data legitimately contains `0x00`
+This corrupts OTA firmware chunks - binary data legitimately contains `0x00`
 bytes, so truncation silently drops payload data.  The OTA receiver writes
 incomplete chunks to flash, producing a bad firmware image.
 
@@ -125,9 +125,9 @@ Fix (two parts):
    the old format inferred chunk length from the serialized message size,
    which breaks when the mesh layer pads the buffer.  New wire format:
    `[0xF3 type] [index_lo] [index_hi] [data_len] [data...]`
-   This adds one byte of overhead, reducing `CHUNK_DATA_SIZE` from 28 → 27.
+   This adds one byte of overhead, reducing `CHUNK_DATA_SIZE` from 28 -> 27.
    The `total_chunks` calculation in `OtaSender::new()` uses `div_ceil` so
    it adjusts automatically.
 
-**This is a protocol-breaking change** — nodes with old firmware cannot
+**This is a protocol-breaking change** - nodes with old firmware cannot
 exchange OTA chunks with nodes running the new format.

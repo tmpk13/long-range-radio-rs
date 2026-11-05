@@ -14,7 +14,7 @@ pub mod msg {
     pub const OTA_COMPLETE: u8 = 0xF6;
 }
 
-/// Maximum data bytes per chunk (32 − 1 type − 2 index − 1 length = 27).
+/// Maximum data bytes per chunk (32 - 1 type - 2 index - 1 length = 27).
 pub const CHUNK_DATA_SIZE: usize = 27;
 
 /// Reject / abort reason codes.
@@ -27,9 +27,9 @@ pub mod reason {
     pub const BUSY: u8 = 0x06;
 }
 
-// ── Offer ───────────────────────────────────────────────────────────────────
+// -- Offer -------------------------------------------------------------------
 
-/// Firmware offer sent from initiator → target.
+/// Firmware offer sent from initiator -> target.
 #[derive(Debug, Clone, Copy)]
 pub struct OtaOffer {
     pub firmware_size: u32,
@@ -63,7 +63,7 @@ impl OtaOffer {
     }
 }
 
-// ── Chunk ───────────────────────────────────────────────────────────────────
+// -- Chunk -------------------------------------------------------------------
 
 /// A single firmware chunk: index + up to 28 bytes of data.
 #[derive(Debug, Clone)]
@@ -103,7 +103,7 @@ impl OtaChunk {
     }
 }
 
-// ── Chunk ACK ───────────────────────────────────────────────────────────────
+// -- Chunk ACK ---------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
 pub struct OtaChunkAck {
@@ -120,7 +120,7 @@ impl OtaChunkAck {
     }
 }
 
-// ── Simple response messages ────────────────────────────────────────────────
+// -- Simple response messages ------------------------------------------------
 
 /// Serialize a simple 1-byte-type message (ACCEPT).
 pub fn serialize_accept(buf: &mut [u8; 32]) -> usize {
@@ -149,7 +149,7 @@ pub fn serialize_complete(buf: &mut [u8; 32], crc32: u32) -> usize {
     5
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// -- Helpers -----------------------------------------------------------------
 
 /// Returns `true` if the first byte of a mesh payload is an OTA message type.
 pub fn is_ota_message(data: &[u8]) -> bool {

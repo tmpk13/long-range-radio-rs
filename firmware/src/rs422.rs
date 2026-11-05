@@ -30,7 +30,7 @@ use stm32wlxx_hal::{
     uart::{self, Uart1},
 };
 
-/// Line rate — the SEN0600 factory default.
+/// Line rate - the SEN0600 factory default.
 pub const BAUD: u32 = 9_600;
 
 /// Modbus slave address of the soil probe (factory default).

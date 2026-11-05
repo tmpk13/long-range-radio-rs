@@ -2,7 +2,7 @@
 //!
 //! An NMEA GPS receiver hangs off USART1: PB7 = RX (module TX -> MCU) at
 //! the 9600 8N1 NMEA default.  The GPS is kept powered and active at all
-//! times — no standby or duty cycling.  PB6 (USART1 TX) is left free; the
+//! times - no standby or duty cycling.  PB6 (USART1 TX) is left free; the
 //! receiver runs with its factory sentence set.
 //!
 //! On the Forest Sensor Platform PB7 is the output of the RS-485
@@ -37,7 +37,7 @@ use stm32wlxx_hal::{
     uart::{self, NoTx, Uart1},
 };
 
-/// NMEA line rate — the near-universal GPS module factory default.
+/// NMEA line rate - the near-universal GPS module factory default.
 pub const BAUD: u32 = 9_600;
 
 /// Header block: magic + next data LBA.  Placed 1 MiB into the card to

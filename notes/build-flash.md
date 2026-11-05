@@ -47,9 +47,9 @@ cargo run --release --features debug
 
 With no display connected, the I2C bus has no external pull-up resistors
 (they live on the display module). Floating SDA/SCL lines cause the HAL's
-`busy_wait!` macro to spin indefinitely — the peripheral never sees NACK
+`busy_wait!` macro to spin indefinitely - the peripheral never sees NACK
 or ARLO because the bus state is indeterminate. The 5 s IWDG fires, MCU
-resets, bootloader jumps to app, I2C hangs again → perpetual reset loop.
+resets, bootloader jumps to app, I2C hangs again -> perpetual reset loop.
 probe-rs can't establish a stable SWD connection during this loop, so
 `cargo run -r` mostly times out (works occasionally if the timing aligns).
 
@@ -58,8 +58,8 @@ Fix (three layers):
 1. **Enable internal pull-ups** on the I2C GPIO pins (`I2c2::new(..., true, cs)`).
    The HAL's `pullup: bool` parameter configures `Pull::Up` on both SCL/SDA.
    With pull-ups, a missing device produces a fast NACK instead of a hang.
-   The weak internal pull-ups (~40 kΩ) don't affect boards with external
-   pull-ups (~4.7 kΩ) — they simply parallel.
+   The weak internal pull-ups (~40 kOhm) don't affect boards with external
+   pull-ups (~4.7 kOhm) - they simply parallel.
 
 2. **Probe power-sequencing**: plug the Pico DebugProbe into USB **before**
    powering the target board. If the target is powered first, probe-rs
@@ -181,15 +181,15 @@ ERROR probe_rs::architecture::arm::memory::romtable: 	Failed to read component i
 ARM Chip with debug port Default:
 
 Debug Port: DPv2, Designer: STMicroelectronics, Part: 0x4970, Revision: 0x0, Instance: 0x00
-├── V1(0) MemoryAP
-│   └── 0 MemoryAP (AmbaAhb3)
-│       ├── 0xe00ff000 ROM Table (Class 1), Designer: STMicroelectronics
-│       ├── 0xe0001000 Generic
-│       ├── 0xe0000000 Peripheral test block
-│       ├── 0xe0040000 Generic
-│       └── 0xe0043000 Coresight Component, Part: 0x0906, Devtype: 0x14, Archid: 0x0000, Designer: ARM Ltd
-└── V1(1) MemoryAP
-    └── 1 MemoryAP (AmbaAhb3)
+|-- V1(0) MemoryAP
+|   `-- 0 MemoryAP (AmbaAhb3)
+|       |-- 0xe00ff000 ROM Table (Class 1), Designer: STMicroelectronics
+|       |-- 0xe0001000 Generic
+|       |-- 0xe0000000 Peripheral test block
+|       |-- 0xe0040000 Generic
+|       `-- 0xe0043000 Coresight Component, Part: 0x0906, Devtype: 0x14, Archid: 0x0000, Designer: ARM Ltd
+`-- V1(1) MemoryAP
+    `-- 1 MemoryAP (AmbaAhb3)
 ```
 
 The `0xf0000000` error is AP1, the second core's port on the dual-core

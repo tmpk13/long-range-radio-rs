@@ -115,7 +115,7 @@ pub const MESH_LISTEN_PERIOD_MS: u32 = match RADIO_PRESET {
 /// Hop-count lifetime for broadcast packets.
 ///
 /// Each hop decrements the counter; a packet with lifetime 0 is not
-/// forwarded.  For a 2-node direct link, 1 is sufficient — the originator
+/// forwarded.  For a 2-node direct link, 1 is sufficient - the originator
 /// transmits once and the peer receives it without re-broadcasting.
 /// Increase if you add intermediate nodes that need to forward packets.
 pub const BROADCAST_LIFETIME: u8 = 1;

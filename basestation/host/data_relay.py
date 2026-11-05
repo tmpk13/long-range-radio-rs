@@ -2,7 +2,7 @@
 """
 Relay mesh data between the basestation and stdout/stdin.
 
-This acts as a compatibility layer for the daemon — it reads mesh
+This acts as a compatibility layer for the daemon - it reads mesh
 messages from the basestation's data UART and prints them as JSON
 lines to stdout.  Messages from stdin are sent to the mesh.
 

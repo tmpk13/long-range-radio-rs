@@ -75,18 +75,18 @@ impl core::fmt::Write for TelemetryLine {
 }
 
 /*
-    Seeed Wio-E5 (LoRa-E5) — STM32WLE5JC
+    Seeed Wio-E5 (LoRa-E5) - STM32WLE5JC
 
     The SX1262 radio is integrated into the MCU.  There are no external
-    SPI or GPIO connections for the radio — the SubGHz peripheral handles
+    SPI or GPIO connections for the radio - the SubGHz peripheral handles
     everything over an internal SPI3 bus.
 
     TCXO:  32 MHz on DIO3 (configured via SubGHz command)
     RF SW: controlled via DIO2 (set_dio2_as_rf_switch_ctrl)
 
     I2C2 display (SSD1306 128x64):
-        SCL — PB15
-        SDA — PA15
+        SCL - PB15
+        SDA - PA15
 
     Debug output via RTT (probe-rs / SWD).
 */
@@ -435,7 +435,7 @@ mod app {
 
         loop {
             // Retry display connection if not detected.
-            // Skip all I2C during OTA — a stuck bus could trigger a watchdog
+            // Skip all I2C during OTA - a stuck bus could trigger a watchdog
             // reset and lose the in-progress transfer.
             //
             // Checked before that gate, so a sender that vanished mid-upload
