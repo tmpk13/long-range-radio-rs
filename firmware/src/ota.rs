@@ -21,11 +21,11 @@ use stm32wlxx_hal::pac;
 use crate::boot_state::BootState;
 use crate::config::{FIRMWARE_VERSION, TX_POLL_TIMEOUT_MS};
 use crate::flash_ecc;
-use crate::ota_protocol::{self, OtaChunk, OtaChunkAck, OtaOffer, msg, reason};
+use crate::ota_protocol::{self, CHUNK_DATA_SIZE, OtaChunk, OtaChunkAck, OtaOffer, msg, reason};
 
 // -- Flash / partition constants ---------------------------------------------
 
-use flash_layout::{DFU_BASE, MAX_FW_SIZE, PAGE_SIZE};
+use flash_layout::{ACTIVE_PAGES, DFU_BASE, MAX_FW_SIZE, PAGE_SIZE};
 
 /// First DFU page index, in the HAL's u8 page numbering.
 const DFU_PAGE_START: u8 = flash_layout::DFU_PAGE as u8;
@@ -145,14 +145,8 @@ impl OtaReceiver {
         }
 
         let offer = OtaOffer::deserialize(payload)?;
-
-        if offer.firmware_size > MAX_FW_SIZE || offer.firmware_size == 0 {
-            return Some(make_reject(reason::NO_SPACE));
-        }
-
-        // Reject downgrades or same-version re-flashes.
-        if offer.version <= FIRMWARE_VERSION {
-            return Some(make_reject(reason::BAD_VERSION));
+        if let Some(why) = offer_problem(&offer, FIRMWARE_VERSION) {
+            return Some(make_reject(why));
         }
 
         self.page_buf_mut().fill(0xFF);
@@ -203,13 +197,16 @@ impl OtaReceiver {
             return Some(make_ack(chunk.index, next_chunk));
         }
 
-        // Correct next chunk - copy data into page buffer.
-        let data_len = chunk.data_len as usize;
-
+        // Correct next chunk - copy data into page buffer, but never past
+        // the offered size: a sender that pads its chunks could otherwise
+        // push the last page out of the DFU slot.
         let rx = match &mut self.state {
             State::Active(rx) => rx,
             _ => unreachable!(),
         };
+        let received = rx.current_page as u32 * PAGE_SIZE + rx.page_offset as u32;
+        let data_len =
+            (chunk.data_len as u32).min(rx.offer.firmware_size.saturating_sub(received)) as usize;
 
         let offset = rx.page_offset as usize;
         let space = PAGE_BUF_SIZE - offset;
@@ -299,8 +296,14 @@ impl OtaReceiver {
         Some(make_ack(chunk.index, next_chunk))
     }
 
-    /// Write the page buffer to flash at the given page index.
+    /// Write the page buffer to flash at the given page index, which has to
+    /// lie in the DFU slot.
     fn write_page_to_flash(&self, flash_periph: &mut pac::FLASH, page_idx: u8) -> bool {
+        // The offer and chunk checks keep the index in range; this is the
+        // last line in front of an erase of the bootloader or the boot log.
+        if !(DFU_PAGE_START..DFU_PAGE_START + ACTIVE_PAGES as u8).contains(&page_idx) {
+            return false;
+        }
         let mut flash = Flash::unlock(flash_periph);
         let page = unsafe { Page::from_index_unchecked(page_idx) };
 
@@ -370,6 +373,27 @@ impl OtaReceiver {
 
 // -- Free functions ----------------------------------------------------------
 
+/// Why an offer cannot be taken by a node running `running`, if it cannot.
+///
+/// The chunk count has to match the size.  Nothing else bounds how many
+/// chunks arrive, and with more of them the page counter ran past the DFU
+/// slot: through the scratch and boot-state pages, and at slot page 64 into
+/// page 128, which the flash's 7-bit page field (PNB) turns into page 0, the
+/// bootloader.
+fn offer_problem(offer: &OtaOffer, running: u16) -> Option<u8> {
+    if offer.firmware_size > MAX_FW_SIZE || offer.firmware_size == 0 {
+        return Some(reason::NO_SPACE);
+    }
+    if offer.total_chunks as u32 != offer.firmware_size.div_ceil(CHUNK_DATA_SIZE as u32) {
+        return Some(reason::BAD_OFFER);
+    }
+    // Reject downgrades or same-version re-flashes.
+    if offer.version <= running {
+        return Some(reason::BAD_VERSION);
+    }
+    None
+}
+
 /// CRC-32 of the first `size` bytes of the DFU slot, or `None` when the
 /// flash's ECC rejected part of them.
 fn dfu_crc32(size: u32) -> Option<u32> {
@@ -412,4 +436,75 @@ fn make_abort(reason: u8) -> OtaResponse {
     let mut buf = [0u8; 32];
     let len = ota_protocol::serialize_abort(&mut buf, reason);
     OtaResponse { data: buf, len }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn offer(firmware_size: u32, total_chunks: u16, version: u16) -> OtaOffer {
+        OtaOffer {
+            firmware_size,
+            total_chunks,
+            crc32: 0,
+            version,
+        }
+    }
+
+    fn chunks(size: u32) -> u16 {
+        size.div_ceil(CHUNK_DATA_SIZE as u32) as u16
+    }
+
+    #[test]
+    fn a_consistent_newer_offer_is_taken() {
+        for size in [1, 27, 28, 48_276, MAX_FW_SIZE] {
+            assert_eq!(
+                offer_problem(&offer(size, chunks(size), 2), 1),
+                None,
+                "{size}"
+            );
+        }
+    }
+
+    #[test]
+    fn sizes_the_slot_cannot_hold() {
+        assert_eq!(offer_problem(&offer(0, 0, 2), 1), Some(reason::NO_SPACE));
+        let big = MAX_FW_SIZE + 1;
+        assert_eq!(
+            offer_problem(&offer(big, chunks(big), 2), 1),
+            Some(reason::NO_SPACE)
+        );
+    }
+
+    #[test]
+    fn a_chunk_count_off_from_the_size() {
+        let size = 48_276;
+        for n in [0, chunks(size) - 1, chunks(size) + 1, u16::MAX] {
+            assert_eq!(
+                offer_problem(&offer(size, n, 2), 1),
+                Some(reason::BAD_OFFER),
+                "{n}"
+            );
+        }
+    }
+
+    #[test]
+    fn old_or_same_versions() {
+        let size = 1_000;
+        assert_eq!(
+            offer_problem(&offer(size, chunks(size), 3), 3),
+            Some(reason::BAD_VERSION)
+        );
+        assert_eq!(
+            offer_problem(&offer(size, chunks(size), 2), 3),
+            Some(reason::BAD_VERSION)
+        );
+    }
+
+    #[test]
+    fn the_largest_image_stays_in_the_dfu_slot() {
+        // Data is capped at the offered size, so the last page written is
+        // the one holding its last byte.
+        assert!((MAX_FW_SIZE - 1) / PAGE_SIZE < ACTIVE_PAGES);
+    }
 }

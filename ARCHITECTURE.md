@@ -155,8 +155,8 @@ stateDiagram-v2
 
 The record names are `flash_layout::boot::Record`. An image the
 bootloader did not start (probe-rs sets the program counter itself)
-confirms a `Trial` log at once, so a later reset cannot "revert" over a
-freshly flashed build.
+settles whatever the log had pending at once, so the next boot cannot
+revert over a freshly flashed build or copy pages over it.
 
 ## Over-the-air update
 
@@ -243,7 +243,7 @@ flowchart LR
     subgraph app["Node app"]
         pass["main loop pass<br/>one feed per pass"]
         waits["waits with their own deadline<br/>TX poll, SD busy, SD init: feed_now"]
-        i2c["I2C waits give up after 25 ms<br/>watchdog resets during I2C: bus left alone 1-24 h"]
+        i2c["I2C waits give up after 25 ms, a failed transfer clears the bus<br/>watchdog resets during I2C: bus left alone 1-24 h"]
         radio["RadioWatch: no TX for 10 min re-inits<br/>the radio, 5 min more resets the chip"]
         ota["OTA_COMPLETE sent:<br/>reset about 10 s later"]
         panic["panic: record file and line, spin"]

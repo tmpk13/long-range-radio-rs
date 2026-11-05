@@ -134,7 +134,7 @@ mod app {
     use sx1262_mesh_rs::OtaReceiver;
     use sx1262_mesh_rs::boot_state::BootState;
     use sx1262_mesh_rs::config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS};
-    use sx1262_mesh_rs::i2c_bus::{self, BoundedI2c};
+    use sx1262_mesh_rs::i2c_bus::BoundedI2c;
     use sx1262_mesh_rs::ota_protocol;
     use sx1262_mesh_rs::platform::{SYSCLK_HZ, millis};
     use sx1262_mesh_rs::radio::{RfSwitch, Sx1262Driver};
@@ -311,14 +311,21 @@ mod app {
         radio.print_diagnostics();
 
         // ---- I2C2 display (SSD1306 128x64) -----------------------------------
-        // Clock out a sensor that a reset left holding the bus, then hand the
-        // pins to the I2C driver.  Nothing on the bus is addressed until the
-        // loop runs: a bus fault costs the display and the sensors there,
-        // never the radio.
-        let i2c = cortex_m::interrupt::free(|cs| {
-            let pins = i2c_bus::bus_clear(gpiob.b15, gpioa.a15, cs);
-            BoundedI2c::new(I2c2::new(dp.I2C2, pins, 100_000, &mut rcc, true, cs))
+        // Set up the I2C driver, then clock out a sensor that a reset left
+        // holding the bus.  Nothing on the bus is addressed until the loop
+        // runs: a bus fault costs the display and the sensors there, never
+        // the radio.
+        let mut i2c = cortex_m::interrupt::free(|cs| {
+            BoundedI2c::new(I2c2::new(
+                dp.I2C2,
+                (gpiob.b15, gpioa.a15),
+                100_000,
+                &mut rcc,
+                true,
+                cs,
+            ))
         });
+        i2c.clear_bus();
 
         // With `sensor`, split the bus between the display and the
         // sensor suite; everything runs at the same task priority.

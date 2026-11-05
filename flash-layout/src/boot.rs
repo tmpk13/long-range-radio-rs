@@ -45,7 +45,7 @@
 use crate::crc32::Crc32;
 use crate::{
     ACTIVE_BASE, ACTIVE_PAGE, ACTIVE_PAGES, DFU_PAGE, MAX_FW_SIZE, PAGE_SIZE, RAM_BASE, RAM_SIZE,
-    SCRATCH_PAGE, STATE_PAGE,
+    SCRATCH_PAGES, STATE_PAGE,
 };
 
 #[cfg(test)]
@@ -65,8 +65,9 @@ pub struct Geometry {
     pub active_page: u32,
     /// First page of the DFU slot.
     pub dfu_page: u32,
-    /// The page that holds one active page while it is swapped.
-    pub scratch_page: u32,
+    /// The pages that hold one active page while it is swapped, used in
+    /// turn (see [`scratch_for`](Self::scratch_for)).
+    pub scratch_pages: &'static [u32],
     /// The log's page.
     pub state_page: u32,
     /// Records the log page holds.
@@ -83,6 +84,15 @@ impl Geometry {
     pub const fn slot_bytes(&self) -> u32 {
         self.slot_pages * self.page_dws as u32 * 8
     }
+
+    /// The scratch page for slot page `page`.  A single scratch page would
+    /// be erased once per slot page, 56 times a swap, and wear out after
+    /// about 178 swaps (DS13105 Table 61: 10 kcycles); spread over seven
+    /// pages each takes 8 erases a swap.  Fixed per slot page, so a resumed
+    /// step uses the same one.
+    pub fn scratch_for(&self, page: u32) -> u32 {
+        self.scratch_pages[page as usize % self.scratch_pages.len()]
+    }
 }
 
 /// The STM32WLE5JC's pages (see the crate docs for the map).
@@ -91,7 +101,7 @@ pub const GEOMETRY: Geometry = Geometry {
     slot_pages: ACTIVE_PAGES,
     active_page: ACTIVE_PAGE,
     dfu_page: DFU_PAGE,
-    scratch_page: SCRATCH_PAGE,
+    scratch_pages: &SCRATCH_PAGES,
     state_page: STATE_PAGE,
     log_slots: (PAGE_SIZE / 8) as usize,
 };
@@ -415,6 +425,18 @@ impl Log {
         Ok(())
     }
 
+    /// Drop whatever is pending: append `Confirmed` unless the log is idle.
+    /// For an app the bootloader did not start (probe-rs sets the program
+    /// counter itself): the image a probe just flashed is not the trial
+    /// image, and a pending swap or revert would copy pages over it at the
+    /// next boot.
+    pub fn settle(&mut self, f: &mut impl Flash, g: &Geometry) -> Result<(), Fault> {
+        if self.state != State::Idle {
+            self.append_or_compact(f, g, Record::Confirmed)?;
+        }
+        Ok(())
+    }
+
     /// Carry out what the log asks for: the bootloader calls this on every
     /// boot.  On `Err` the work stopped part way and the log says where;
     /// running again (after a reset) picks it up.
@@ -447,10 +469,11 @@ impl Log {
     fn swap(&mut self, f: &mut impl Flash, g: &Geometry, from: u32) -> Result<(), Fault> {
         for step in from..g.swap_steps() {
             let page = step / 3;
+            let scratch = g.scratch_for(page);
             let (src, dst) = match step % 3 {
-                0 => (g.active_page + page, g.scratch_page),
+                0 => (g.active_page + page, scratch),
                 1 => (g.dfu_page + page, g.active_page + page),
-                _ => (g.scratch_page, g.dfu_page + page),
+                _ => (scratch, g.dfu_page + page),
             };
             f.tick();
             f.copy(src, dst)?;

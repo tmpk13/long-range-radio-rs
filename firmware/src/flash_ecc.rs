@@ -24,8 +24,25 @@ pub fn read_dw(addr: u32) -> Result<u64, Unreadable> {
     if bad { Err(Unreadable) } else { Ok(v) }
 }
 
+fn eccr() -> &'static stm32wlxx_hal::pac::flash::ECCR {
+    // SAFETY: FLASH_ECCR is only read here and its write-1-to-clear flags
+    // written; nothing else in the app touches it.
+    unsafe { &(*stm32wlxx_hal::pac::FLASH::PTR).eccr }
+}
+
+/// Clear ECCC and ECCD.  While either is set, FLASH_ECCR records no new
+/// error (RM0461 3.3.3), so a corrected single-bit error left from an
+/// earlier read would keep a later two-bit error from setting ECCD.
+fn clear_ecc_flags() {
+    let r = eccr().read();
+    if r.eccc().bit_is_set() || r.eccd().bit_is_set() {
+        eccr().modify(|_, w| w.eccd().set_bit().eccc().set_bit());
+    }
+}
+
 /// Read the double-word at `addr` as stored, and whether the ECC rejected it.
 pub fn read_dw_raw(addr: u32) -> (u64, bool) {
+    clear_ecc_flags();
     ECC_ERROR.store(false, Ordering::SeqCst);
     // SAFETY: an aligned read of flash; a bad ECC raises the NMI handled below.
     let (lo, hi) = unsafe {
@@ -48,11 +65,12 @@ pub fn read_dw_raw(addr: u32) -> (u64, bool) {
 #[cfg(all(target_arch = "arm", target_os = "none"))]
 #[cortex_m_rt::exception]
 unsafe fn NonMaskableInt() {
-    // SAFETY: FLASH_ECCR is only read and its write-1-to-clear flags written.
-    let eccr = unsafe { &(*stm32wlxx_hal::pac::FLASH::PTR).eccr };
-    if eccr.read().eccd().bit_is_set() {
+    let r = eccr().read();
+    // ECCC counts too: with it latched by an earlier corrected error the
+    // register may not show the two-bit error that raised this NMI.
+    if r.eccd().bit_is_set() || r.eccc().bit_is_set() {
         ECC_ERROR.store(true, Ordering::SeqCst);
-        eccr.modify(|_, w| w.eccd().set_bit().eccc().set_bit());
+        eccr().modify(|_, w| w.eccd().set_bit().eccc().set_bit());
         return;
     }
     loop {}

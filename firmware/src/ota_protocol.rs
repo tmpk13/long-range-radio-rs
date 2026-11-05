@@ -44,6 +44,8 @@ pub mod reason {
     /// The node's boot is not settled: a staged image waits for its reboot,
     /// or the running image is on trial and has not confirmed itself yet.
     pub const BOOT_PENDING: u8 = 0x07;
+    /// The offer's chunk count does not match its size.
+    pub const BAD_OFFER: u8 = 0x08;
 }
 
 // -- Offer -------------------------------------------------------------------

@@ -17,8 +17,12 @@ So the bus is now handled in three layers (`firmware/src/i2c_bus.rs`):
 - `BoundedI2c` keeps the HAL's setup but runs the HAL's transfer
   sequences itself with a 25 ms deadline on every wait. A timeout resets
   the peripheral and returns `Error::Bus`.
-- `bus_clear` clocks SCL up to nine times at boot, before the I2C
-  peripheral takes the pins, so a sensor interrupted mid-byte lets SDA go.
+- `clear_bus` clocks SCL up to nine times, with the peripheral off and the
+  pins briefly plain GPIO, so a sensor interrupted mid-byte lets SDA go.
+  It runs at boot and after every transfer that failed on the bus (a
+  timeout, a bus left busy, a lost arbitration): resetting the peripheral
+  after a timeout does not free a sensor that was driving SDA, and every
+  later transfer would fail at once, with no watchdog reset to clear it.
 - Nothing on the bus is addressed in `init`: the display comes up on the
   loop's first pass and the sensors are probed at the first sweep. After
   watchdog resets that hit during I2C (the reset record's loop phase), the

@@ -13,7 +13,10 @@
 //! | DFU staging  | 64-119  | 112 KB | `0x0802_0000` | the OTA receiver, the bootloader    |
 //! | Swap scratch | 120     | 2 KB   | `0x0803_C000` | the bootloader                      |
 //! | Boot state   | 121     | 2 KB   | `0x0803_C800` | the app and the bootloader          |
-//! | Unused       | 122-127 | 12 KB  | `0x0803_D000` | -                                   |
+//! | Swap scratch | 122-127 | 12 KB  | `0x0803_D000` | the bootloader                      |
+//!
+//! The swap uses its seven scratch pages in turn ([`SCRATCH_PAGES`]), so no
+//! one of them wears out first.
 //!
 //! These numbers are a contract with every bootloader already flashed: an
 //! over-the-air update replaces only the app, so an app built with a
@@ -50,10 +53,13 @@ pub const ACTIVE_PAGE: u32 = 8;
 pub const ACTIVE_PAGES: u32 = 56;
 /// First page of the DFU slot, where an incoming image is staged.
 pub const DFU_PAGE: u32 = 64;
-/// Page the bootloader parks one active page in while it swaps the slots.
+/// Page the bootloader parks one active page in while it swaps the slots;
+/// the first of [`SCRATCH_PAGES`].
 pub const SCRATCH_PAGE: u32 = 120;
 /// Page holding the boot-state log (see [`boot`]).
 pub const STATE_PAGE: u32 = 121;
+/// Every scratch page, used in turn by slot page (`boot::Geometry::scratch_for`).
+pub const SCRATCH_PAGES: [u32; 7] = [SCRATCH_PAGE, 122, 123, 124, 125, 126, 127];
 
 /// Address of a flash page.
 pub const fn page_addr(page: u32) -> u32 {
@@ -85,6 +91,15 @@ const _: () = {
     assert!(page_addr(STATE_PAGE + 1) <= FLASH_BASE + FLASH_SIZE);
     // The HAL addresses pages by a u8 index.
     assert!(STATE_PAGE <= u8::MAX as u32);
+    // Every scratch page lies past the DFU slot, inside the flash, and off
+    // the state page.
+    let mut i = 0;
+    while i < SCRATCH_PAGES.len() {
+        let p = SCRATCH_PAGES[i];
+        assert!(p >= DFU_PAGE + ACTIVE_PAGES && p != STATE_PAGE);
+        assert!(page_addr(p + 1) <= FLASH_BASE + FLASH_SIZE);
+        i += 1;
+    }
 };
 
 /// Write a cortex-m-rt `memory.x` that links a program into `length` bytes of

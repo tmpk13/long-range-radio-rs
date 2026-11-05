@@ -39,11 +39,14 @@ struct Sim {
     dead: bool,
     /// Erases and programs done so far.
     ops: u64,
+    /// Erases done so far, per page.
+    erases: Vec<u32>,
 }
 
 impl Sim {
     fn new(g: &Geometry) -> Sim {
-        let pages = (0..=g.state_page)
+        let last = g.scratch_pages.iter().copied().fold(g.state_page, u32::max);
+        let pages: Vec<Vec<u64>> = (0..=last)
             .map(|p| {
                 let n = if p == g.state_page {
                     g.log_slots
@@ -53,6 +56,7 @@ impl Sim {
                 vec![ERASED; n]
             })
             .collect();
+        let n = pages.len();
         Sim {
             pages,
             bad: HashSet::new(),
@@ -61,6 +65,7 @@ impl Sim {
             torn: Torn::Before,
             dead: false,
             ops: 0,
+            erases: vec![0; n],
         }
     }
 
@@ -159,6 +164,7 @@ impl Flash for Sim {
             *cell = ERASED;
         }
         self.bad.retain(|&(p, _)| p != page);
+        self.erases[page as usize] += 1;
         Ok(())
     }
 
@@ -183,14 +189,14 @@ impl Flash for Sim {
 
 // -- Fixtures -----------------------------------------------------------------
 
-/// Three pages of four double-words per slot: small enough to cut the power
-/// at every operation, twice over.
+/// Three pages of four double-words per slot, with two scratch pages taken
+/// in turn: small enough to cut the power at every operation, twice over.
 const TINY: Geometry = Geometry {
     page_dws: 4,
     slot_pages: 3,
     active_page: 0,
     dfu_page: 3,
-    scratch_page: 6,
+    scratch_pages: &[6, 8],
     state_page: 7,
     log_slots: 32,
 };
@@ -251,7 +257,9 @@ impl Case {
         let mut sim = Sim::new(g);
         sim.load_slot(g, g.active_page, &self.old);
         sim.load_slot(g, g.dfu_page, &self.new);
-        sim.pages[g.scratch_page as usize].fill(0x0BAD_F00D_0BAD_F00D);
+        for &p in g.scratch_pages {
+            sim.pages[p as usize].fill(0x0BAD_F00D_0BAD_F00D);
+        }
         let mut log = Log::scan(&mut sim, g);
         for r in [
             Record::ImageSize(64),
@@ -728,6 +736,72 @@ fn full_size_swap_survives_cuts_across_it() {
             case.assert_swap_finished(&mut sim, outcome, &what);
         }
     }
+}
+
+#[test]
+fn full_size_swap_spreads_the_scratch_wear() {
+    let case = Case::new(GEOMETRY);
+    let g = &case.g;
+    let mut sim = case.staged();
+    let before = sim.erases.clone();
+    assert_eq!(boot(&mut sim, g), Ok(Outcome::Trial));
+    for &p in g.scratch_pages {
+        let n = sim.erases[p as usize] - before[p as usize];
+        assert!(n <= 8, "scratch page {p} erased {n} times in one swap");
+    }
+}
+
+#[test]
+fn settle_drops_whatever_is_pending() {
+    let case = Case::new(TINY);
+    let g = &case.g;
+    let cut = |mut sim: Sim, fuel: u64| {
+        sim.fuel = Some(fuel);
+        sim.torn = Torn::Before;
+        assert_eq!(boot(&mut sim, g), Err(Fault::Halted));
+        sim.fuel = None;
+        sim.dead = false;
+        sim
+    };
+    let trial = || {
+        let mut sim = case.staged();
+        assert_eq!(boot(&mut sim, g), Ok(Outcome::Trial));
+        sim
+    };
+    // A swap waiting for its reboot, a swap cut short, a trial, and a revert
+    // cut short.
+    let pending = [
+        case.staged(),
+        cut(case.staged(), 20),
+        trial(),
+        cut(trial(), 6),
+    ];
+    for (i, mut sim) in pending.into_iter().enumerate() {
+        let mut log = Log::scan(&mut sim, g);
+        let was = log.state();
+        let expected = match (i, was) {
+            (0, State::Swap { steps: 0, .. }) => true,
+            (1, State::Swap { steps, .. }) => steps > 0,
+            (2, State::Trial) => true,
+            (3, State::Revert { .. }) => true,
+            _ => false,
+        };
+        assert!(expected, "case {i} starts in {was:?}");
+        log.settle(&mut sim, g).unwrap();
+        assert_eq!(Log::scan(&mut sim, g).state(), State::Idle, "{was:?}");
+        let active = sim.slot(g, g.active_page);
+        assert_eq!(boot(&mut sim, g), Ok(Outcome::Idle), "{was:?}");
+        assert!(
+            sim.slot(g, g.active_page) == active,
+            "{was:?}: the boot moved pages"
+        );
+    }
+    // Nothing pending: nothing written.
+    let mut sim = case.sim();
+    let mut log = Log::scan(&mut sim, g);
+    let used = log.used();
+    log.settle(&mut sim, g).unwrap();
+    assert_eq!(Log::scan(&mut sim, g).used(), used);
 }
 
 // -- The handoff word -------------------------------------------------------------

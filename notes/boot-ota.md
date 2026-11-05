@@ -157,7 +157,14 @@ those facts:
   step can run twice without harm.
 - The bootloader and the app both install an NMI handler that turns an
   uncorrectable ECC error into an unreadable double-word. The scan skips
-  it; the bootloader's CRC check refuses an image containing one.
+  it; the bootloader's CRC check refuses an image containing one. Each
+  checked read first clears ECCC and ECCD: FLASH_ECCR records nothing new
+  while either is set (RM0461 3.3.3), so a corrected single-bit error left
+  latched would hide a later two-bit one.
+- The page copies take turns on seven scratch pages (120 and 122-127), by
+  slot page. One scratch page took 56 erases a swap and would wear out
+  after about 178 swaps at the 10 kcycles DS13105 Table 61 guarantees;
+  seven take 8 each, about 1250 swaps.
 - Before the first copy the bootloader checks the staged image's size,
   vector table and CRC-32 against the request. A bad image gets a
   `Refused` record and the running one stays.
@@ -207,8 +214,27 @@ stops on that node until it is reflashed.
   reboot, and while the running image is on trial: its revert target in
   the DFU slot is what a new transfer would overwrite.
 - The handoff word in TAMP_BKP0R tells the app what the bootloader did;
-  an app that finds none was started by probe-rs, and confirms a trial log
-  at once, so a reset after a debug flash cannot revert over it.
+  an app that finds none was started by probe-rs, and settles whatever
+  the log had pending (a trial, a swap waiting for its reboot, a swap or
+  revert a power cut interrupted) by appending `Confirmed`. Otherwise the
+  next boot would revert over the fresh build, or copy pages over it.
+
+## OTA offers are checked against the slot
+
+An offer's chunk count was never checked against its size, and nothing
+stopped the receiver's page counter at the end of the DFU slot. An offer
+with enough chunks (any node in range can send one) wrote on through the
+scratch page and the boot log. At slot page 64 the HAL wrote page 128
+into FLASH_CR's 7-bit PNB field, which made it page 0: the bootloader,
+erased before the program step failed. An offer with zero chunks divided
+by zero in the progress display. Found in review, with the boot log
+changes. Three checks now:
+
+- an offer whose chunk count is not `div_ceil(size, 27)` is refused with
+  `BAD_OFFER` (0x08);
+- chunk data past the offered size is dropped, so padded chunks cannot
+  push the last page out of the slot;
+- the page write refuses any page outside the DFU slot.
 
 ## OTA timing
 

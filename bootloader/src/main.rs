@@ -144,10 +144,11 @@ static ECC_ERROR: AtomicBool = AtomicBool::new(false);
 #[exception]
 unsafe fn NonMaskableInt() {
     let eccr = reg_read(FLASH_ECCR);
-    if eccr & ECCR_ECCD != 0 {
+    // ECCC counts too: with it latched by an earlier corrected error the
+    // register may not show the two-bit error that raised this NMI.
+    if eccr & (ECCR_ECCD | ECCR_ECCC) != 0 {
         ECC_ERROR.store(true, Ordering::SeqCst);
-        // ECCD and ECCC clear on a write of 1; keep the interrupt enable.
-        reg_write(FLASH_ECCR, (eccr & ECCR_ECCCIE) | ECCR_ECCD | ECCR_ECCC);
+        clear_ecc_flags();
         return;
     }
     // Nothing else raises an NMI here (no clock security system, no SRAM2
@@ -155,9 +156,21 @@ unsafe fn NonMaskableInt() {
     loop {}
 }
 
+/// Clear ECCC and ECCD (write 1), keeping the interrupt enable.  While either
+/// is set, FLASH_ECCR records no new error (RM0461 3.3.3), so a corrected
+/// single-bit error left from an earlier read would keep a later two-bit
+/// error from setting ECCD.
+fn clear_ecc_flags() {
+    let eccr = reg_read(FLASH_ECCR);
+    if eccr & (ECCR_ECCD | ECCR_ECCC) != 0 {
+        reg_write(FLASH_ECCR, (eccr & ECCR_ECCCIE) | ECCR_ECCD | ECCR_ECCC);
+    }
+}
+
 /// Read a double-word as stored, and whether the ECC rejected it.  The NMI
 /// is taken before the barrier completes, so the flag is current.
 fn read_dw(addr: u32) -> (u64, bool) {
+    clear_ecc_flags();
     ECC_ERROR.store(false, Ordering::SeqCst);
     let (lo, hi) = unsafe {
         (
