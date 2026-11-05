@@ -184,21 +184,16 @@ fixed (pad 21 is on GND):
   low and never sets it.
 - Pin 4 is NC in the datasheet but VDDK in WCH's EVB schematic, which
   leaves it open, as V1 does.
-- Not in the review: the buck-forest XRCGB32M000F1S1DR0 footprint (Y2,
-  also on CH572D-Module) is Murata's bottom view drawn as the top view.
-  The crystal terminals are one diagonal; the other two pads are joined
-  by a strip on the package. The footprint puts XI/XO on that strip's
-  diagonal, so XI-XO is a short and the crystal sits across GND. Check:
-  XI to XO reads open, unpowered. Rework: turn the crystal 90 degrees;
-  the recommended land pattern still overlaps each terminal by about
-  70%. The library is fixed (Forest-Sensor-Platform b402d0c); each board
-  still needs its Y2 updated from the library and XI/XO rerouted.
+- P3 (found at bring-up): Y2's footprint shorts XI to XO, so the CH572D
+  gets no clock. Fixed in the buck-forest library; the layouts (this board
+  and CH572D-Module) still need Y2 updated and XI/XO rerouted.
+  Forest-Sensor-Platform CH572D-BRINGUP.md has the rework and the checks.
 
 ## First bring-up
 
-Step 1 has passed on the first board (2026-11-03); step 3 found Y2's
-footprint mirrored (2026-11-04); the rest has not run on hardware yet. In
-order:
+The first board reached the CH572D's bootloader (2026-11-04) after the
+faults in Forest-Sensor-Platform CH572D-BRINGUP.md; flashing and the rest
+have not run on hardware yet. In order:
 
 1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
    attached, SD slot empty. Expect about 3-8 mA, 11 mA at datasheet
@@ -220,18 +215,16 @@ order:
    - WIO-RST (J2 pin 5) should read near 3.3 V. Much lower means the dead
      CH572D clamps it (H3) and holds the Wio-E5 in reset.
 2. `mise install` (builds wchisp) and `mise run udev`.
-3. USB-C in, and check VDD33 at R41's chip end: 3.2-3.4 V. Higher means
-   the chip draws less than the ~1.13 mA that R41 feeds it, and the LDO
-   cannot sink the rest. The first board's first CH572D read 4.5 V (above
-   its 4.0 V absolute maximum) and was replaced. Then unplug, fit the PA1
-   pull-up ("Getting back into the bootloader", method 2) and plug in:
-   `lsusb` shows 4348:55e0 or 1a86:55e0. `mise run ch572-flash`, then
-   remove the pull-up.
-   - First board: D+ 2.5 V with the pull-up and a full-speed attach with
-     -71 errors, because the chip had no clock. Y2's footprint is mirrored
-     (Board issues), so XI and XO were shorted (0.6 ohm). Removing C26/C27,
-     adding 2.2 uF + 100 nF on VDD33 and flipping the plug changed
-     nothing, as expected.
+3. Unpowered first, the checks in Forest-Sensor-Platform
+   CH572D-BRINGUP.md (crystal short, U9's pins and exposed pad). USB-C
+   in: VDD33 at R41's chip end reads 3.2-3.4 V. Higher means the chip
+   draws less than the ~1.13 mA that R41 feeds it (not running, or not
+   grounded), and the LDO cannot sink the rest; unplug, it is over the
+   4.0 V absolute maximum. Then unplug, fit the PA1 pull-up ("Getting back
+   into the bootloader", method 2), start `mise run ch572-flash` (wchisp
+   waits 30 s) and plug in. The bootloader shows as 1a86:55e0 and leaves
+   USB about 10 s after it enumerates if no tool talks to it. Remove the
+   pull-up after flashing.
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
