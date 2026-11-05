@@ -98,20 +98,13 @@ impl OtaSender {
     ///
     /// Call this before creating the sender to obtain the `crc32` parameter.
     pub fn compute_dfu_crc32(firmware_size: u32) -> u32 {
-        let mut crc: u32 = 0xFFFF_FFFF;
+        let mut crc = flash_layout::crc32::Crc32::new();
         let base = DFU_BASE as *const u8;
         for i in 0..firmware_size {
             let byte = unsafe { ptr::read_volatile(base.add(i as usize)) };
-            crc ^= byte as u32;
-            for _ in 0..8 {
-                if crc & 1 != 0 {
-                    crc = (crc >> 1) ^ 0xEDB8_8320;
-                } else {
-                    crc >>= 1;
-                }
-            }
+            crc.update(&[byte]);
         }
-        !crc
+        crc.finish()
     }
 
     /// Get the next message to send, if any.

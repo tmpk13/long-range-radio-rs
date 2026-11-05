@@ -3,8 +3,8 @@
 #![warn(clippy::large_stack_frames)]
 #![allow(clippy::manual_div_ceil)]
 
-use panic_halt as _;
-
+// The panic handler is sx1262_mesh_rs's: it records the panic for the next
+// boot's reset report.
 #[macro_use]
 extern crate sx1262_mesh_rs;
 
@@ -75,12 +75,18 @@ mod app {
     };
     use sx1262_mesh_rs::{
         LoraIo, MeshNode, OtaSender,
+        boot_state::BootState,
         config::{BROADCAST_LIFETIME, MESH_LISTEN_PERIOD_MS, THIS_ADDRESS},
         ota_protocol,
-        platform::SYSCLK_HZ,
+        platform::{SYSCLK_HZ, millis},
         radio::{RfSwitch, Sx1262Driver},
-        watchdog,
+        reset_record, watchdog,
     };
+
+    /// A basestation image on trial is kept after this long running.  The
+    /// node's health gate (`supervisor::confirm_ready`) needs transmissions,
+    /// which a basestation only makes when the host asks for them.
+    const CONFIRM_AFTER_MS: u32 = 10 * 60_000;
 
     use crate::uart_proto::{self, FrameBuf, FrameParser, cmd, err, ota_state, resp};
 
@@ -123,6 +129,7 @@ mod app {
         state: BsState,
         ota_sender: Option<OtaSender>,
         tx_frame: FrameBuf,
+        boot: BootState,
     }
 
     #[init]
@@ -134,6 +141,32 @@ mod app {
         };
         set_print_channel(channels.up.0);
 
+        let dp = cx.device;
+        let mut flash_periph = dp.FLASH;
+        let mut rcc = dp.RCC;
+
+        // The watchdog first.  The bootloader started it before the jump,
+        // with the same 5 s timeout; this sets it again, and starts it when
+        // probe-rs ran this image without the bootloader.
+        let iwdg = dp.IWDG;
+        watchdog::start(&iwdg, 5_000);
+
+        // Why the chip reset, and what the bootloader did this boot.
+        let record = reset_record::take(&mut rcc);
+        rprintln!(
+            "Reset: {:?}, boot {} since power-on, bootloader: {:?}",
+            record.cause,
+            record.boots,
+            record.handoff
+        );
+        if let Some(site) = record.panic {
+            rprintln!(
+                "  panic at {}...:{}",
+                core::str::from_utf8(&site.file).unwrap_or("?"),
+                site.line
+            );
+        }
+
         // Enable DWT cycle counter for millis()/random()
         cx.core.DCB.enable_trace();
         cx.core.DWT.enable_cycle_counter();
@@ -141,16 +174,15 @@ mod app {
         // Start SysTick monotonic at default MSI 4 MHz
         Mono::start(cx.core.SYST, SYSCLK_HZ);
 
-        let dp = cx.device;
-        let mut flash_periph = dp.FLASH;
-        let mut rcc = dp.RCC;
-
-        // Start watchdog (5 s timeout)
-        let iwdg = dp.IWDG;
-        watchdog::start(&iwdg, 5_000);
-
-        // Confirm boot to the bootloader
-        sx1262_mesh_rs::boot_state::confirm_boot(&mut flash_periph);
+        // The boot log: an image the bootloader just swapped in runs on
+        // trial until the loop has run for CONFIRM_AFTER_MS.
+        let boot = BootState::load(&mut flash_periph, record.handoff);
+        if boot.on_trial() {
+            rprintln!(
+                "Boot: new image on trial, kept after {} min",
+                CONFIRM_AFTER_MS / 60_000
+            );
+        }
 
         // ---- SubGHz radio (integrated SX1262) and its antenna switch ---------
         let gpioa = stm32wlxx_hal::gpio::PortA::split(dp.GPIOA, &mut rcc);
@@ -203,11 +235,12 @@ mod app {
                 state: BsState::Idle,
                 ota_sender: None,
                 tx_frame: FrameBuf::new(),
+                boot,
             },
         )
     }
 
-    #[task(local = [io, mesh, flash, iwdg, uart, parser, state, ota_sender, tx_frame],
+    #[task(local = [io, mesh, flash, iwdg, uart, parser, state, ota_sender, tx_frame, boot],
            priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
@@ -219,14 +252,28 @@ mod app {
         let state = cx.local.state;
         let ota_sender = cx.local.ota_sender;
         let tx_frame = cx.local.tx_frame;
+        let boot = cx.local.boot;
 
         // Progress reporting interval
         let progress_interval = 500_u32.millis();
         let mut next_progress = Mono::now() + progress_interval;
 
+        let mut confirm_at = millis().wrapping_add(CONFIRM_AFTER_MS);
+
         loop {
             // -- 1. Feed watchdog ----------------------------------------
             watchdog::feed(iwdg);
+
+            // Keep an image on trial once it has run long enough.
+            if boot.on_trial() && millis().wrapping_sub(confirm_at) as i32 >= 0 {
+                match boot.confirm(flash) {
+                    Ok(()) => rprintln!("Boot: image confirmed"),
+                    Err(e) => {
+                        rprintln!("Boot: confirm failed ({:?}), retrying in a minute", e);
+                        confirm_at = millis().wrapping_add(60_000);
+                    }
+                }
+            }
 
             // -- 2. Drive mesh protocol ----------------------------------
             mesh.update(io, sx1262_mesh_rs::platform::millis());

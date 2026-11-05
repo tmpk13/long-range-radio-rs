@@ -1,63 +1,117 @@
-//! Read/write helpers for the bootloader state partition.
+//! The app's side of the boot-state log (`flash_layout::boot`): it reads
+//! the log once at boot, appends `Confirmed` when a trial image has proven
+//! itself, and asks for a swap when the OTA receiver has staged a verified
+//! image.  The bootloader does the rest.
 //!
-//! The boot state lives on its own flash page (`flash_layout::STATE_ADDR`).
-//! The first 4 bytes are a magic word indicating the current state; the next
-//! 4 bytes track swap progress (used only by the bootloader itself).
+//! Writes go through the HAL's flash driver; reads through
+//! [`crate::flash_ecc`], so a double-word a power cut left unreadable is
+//! skipped instead of hanging the app in the NMI handler.
 
-use core::ptr;
-
-use flash_layout::STATE_ADDR;
+use flash_layout::boot::{Fault, Flash as LogFlash, GEOMETRY, Image, Log, Outcome, State};
+use flash_layout::{FLASH_BASE, PAGE_SIZE};
 use stm32wlxx_hal::flash::{AlignedAddr, Flash, Page};
 use stm32wlxx_hal::pac;
 
-/// Page index for the boot-state page, in the HAL's u8 page numbering.
-const STATE_PAGE_IDX: u8 = flash_layout::STATE_PAGE as u8;
+use crate::flash_ecc::{self, Unreadable};
 
-// The magic values the bootloader acts on.
-pub use flash_layout::boot_state::{BOOT_OK, SWAP_PENDING};
-
-/// Read the current boot-state magic word.
-pub fn read() -> u32 {
-    unsafe { ptr::read_volatile(STATE_ADDR as *const u32) }
+/// The log as this app sees it.
+pub struct BootState {
+    log: Log,
+    outcome: Option<Outcome>,
 }
 
-/// Write a new boot-state magic word.
-///
-/// Erases the state page first, then programs the 8-byte double-word
-/// (state + 0xFFFF_FFFF padding for the progress field).
-pub fn write(flash_periph: &mut pac::FLASH, state: u32) {
-    let mut flash = Flash::unlock(flash_periph);
-    let page = unsafe { Page::from_index_unchecked(STATE_PAGE_IDX) };
+impl BootState {
+    /// Read the log.  `outcome` is what the bootloader says it did this boot
+    /// (`reset_record::Record::handoff`); `None` means it did not start this
+    /// app.  An app started some other way (probe-rs sets the program
+    /// counter itself) is not the image the bootloader put on trial, so a
+    /// trial log is confirmed at once: otherwise the next reset would
+    /// "revert" over a freshly flashed build.
+    pub fn load(flash: &mut pac::FLASH, outcome: Option<Outcome>) -> Self {
+        let mut f = AppFlash { periph: flash };
+        let mut log = Log::scan(&mut f, &GEOMETRY);
+        if outcome.is_none() {
+            let _ = log.confirm(&mut f, &GEOMETRY);
+        }
+        Self { log, outcome }
+    }
 
-    // Erase state page
-    unsafe { flash.page_erase(page).ok() };
+    /// The log's current state.
+    pub fn state(&self) -> State {
+        self.log.state()
+    }
 
-    // Program 8 bytes: state word + 0xFFFFFFFF (no progress from app side)
-    let data: [u8; 8] = {
-        let mut buf = [0xFFu8; 8];
-        buf[0..4].copy_from_slice(&state.to_le_bytes());
-        buf
-    };
-    let addr = unsafe { AlignedAddr::new_unchecked(STATE_ADDR as usize) };
-    unsafe { flash.program_bytes(&data, addr) }.ok();
-    // Flash is locked on drop of `flash`.
-}
+    /// What the bootloader did this boot, or `None` when it did not start
+    /// this app.
+    pub fn outcome(&self) -> Option<Outcome> {
+        self.outcome
+    }
 
-/// Mark the current firmware as successfully booted.
-///
-/// Call this from the application after confirming the system is healthy
-/// (e.g., radio initialized).  If this is never called before a reset,
-/// the bootloader will revert to the previous firmware.
-pub fn confirm_boot(flash: &mut pac::FLASH) {
-    let current = read();
-    // Only write if not already BOOT_OK - avoid unnecessary flash wear.
-    if current != BOOT_OK {
-        write(flash, BOOT_OK);
+    /// This image runs on trial: the next reset before [`confirm`]
+    /// (Self::confirm) reverts it.
+    pub fn on_trial(&self) -> bool {
+        self.log.state() == State::Trial
+    }
+
+    /// Nothing pending: the node may take a new image.
+    pub fn settled(&self) -> bool {
+        self.log.state() == State::Idle
+    }
+
+    /// Keep this image: append `Confirmed` if it is on trial.
+    pub fn confirm(&mut self, flash: &mut pac::FLASH) -> Result<(), Fault> {
+        self.log.confirm(&mut AppFlash { periph: flash }, &GEOMETRY)
+    }
+
+    /// Ask the bootloader to verify and swap in the image staged in the DFU
+    /// slot, at the next reset.  Fails unless [`settled`](Self::settled).
+    pub fn request_swap(
+        &mut self,
+        flash: &mut pac::FLASH,
+        size: u32,
+        crc: u32,
+    ) -> Result<(), Fault> {
+        self.log.request_swap(
+            &mut AppFlash { periph: flash },
+            &GEOMETRY,
+            Image { size, crc },
+        )
     }
 }
 
-/// Signal the bootloader to swap the DFU image into the ACTIVE slot on
-/// next reboot.
-pub fn request_swap(flash: &mut pac::FLASH) {
-    write(flash, SWAP_PENDING);
+/// The flash for the log.  The app never swaps, so it has no page copy.
+struct AppFlash<'a> {
+    periph: &'a mut pac::FLASH,
+}
+
+fn dw_addr(page: u32, index: usize) -> u32 {
+    FLASH_BASE + page * PAGE_SIZE + index as u32 * 8
+}
+
+impl LogFlash for AppFlash<'_> {
+    fn read(&mut self, page: u32, index: usize) -> Result<u64, Unreadable> {
+        flash_ecc::read_dw(dw_addr(page, index))
+    }
+
+    fn program(&mut self, page: u32, index: usize, value: u64) -> Result<(), Fault> {
+        let mut flash = Flash::unlock(self.periph);
+        // SAFETY: dw_addr is 8-byte aligned and inside the log page.
+        let addr = unsafe { AlignedAddr::new_unchecked(dw_addr(page, index) as usize) };
+        // SAFETY: the log page holds no code or data the app runs from.
+        unsafe { flash.program_bytes(&value.to_le_bytes(), addr) }.map_err(|_| Fault::Failed)
+    }
+
+    fn erase(&mut self, page: u32) -> Result<(), Fault> {
+        let page = u8::try_from(page)
+            .ok()
+            .and_then(Page::from_index)
+            .ok_or(Fault::Failed)?;
+        let mut flash = Flash::unlock(self.periph);
+        // SAFETY: as for `program`.
+        unsafe { flash.page_erase(page) }.map_err(|_| Fault::Failed)
+    }
+
+    fn copy(&mut self, _src: u32, _dst: u32) -> Result<(), Fault> {
+        Err(Fault::Failed)
+    }
 }

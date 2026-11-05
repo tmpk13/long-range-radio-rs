@@ -1,7 +1,8 @@
-//! Flash partition map of the Wio-E5's STM32WLE5JC and the boot-state record,
-//! shared by the bootloader, the node firmware and the basestation.  Each of
-//! those crates also generates its linker `memory.x` from these constants in
-//! its build script, through [`write_memory_x`].
+//! Flash partition map of the Wio-E5's STM32WLE5JC, the boot-state log and
+//! slot swap ([`boot`]), and the image CRC ([`crc32`]), shared by the
+//! bootloader, the node firmware and the basestation.  Each of those crates
+//! also generates its linker `memory.x` from these constants in its build
+//! script, through [`write_memory_x`].
 //!
 //! The 256 KB flash is 128 pages of 2 KB:
 //!
@@ -17,11 +18,15 @@
 //! These numbers are a contract with every bootloader already flashed: an
 //! over-the-air update replaces only the app, so an app built with a
 //! different map would stage images where the deployed bootloader does not
-//! look for them.
+//! look for them.  The boot-state log's format is part of the same contract
+//! (see [`boot`]).
 
 #![no_std]
 
 use core::fmt;
+
+pub mod boot;
+pub mod crc32;
 
 /// First byte of internal flash.
 pub const FLASH_BASE: u32 = 0x0800_0000;
@@ -47,7 +52,7 @@ pub const ACTIVE_PAGES: u32 = 56;
 pub const DFU_PAGE: u32 = 64;
 /// Page the bootloader parks one active page in while it swaps the slots.
 pub const SCRATCH_PAGE: u32 = 120;
-/// Page holding the boot-state record (see [`boot_state`]).
+/// Page holding the boot-state log (see [`boot`]).
 pub const STATE_PAGE: u32 = 121;
 
 /// Address of a flash page.
@@ -67,7 +72,7 @@ pub const MAX_FW_SIZE: u32 = ACTIVE_PAGES * PAGE_SIZE;
 pub const DFU_BASE: u32 = page_addr(DFU_PAGE);
 /// Start of the swap scratch page.
 pub const SCRATCH_BASE: u32 = page_addr(SCRATCH_PAGE);
-/// Address of the boot-state record.
+/// Address of the boot-state log.
 pub const STATE_ADDR: u32 = page_addr(STATE_PAGE);
 
 // The partitions must keep their order without overlapping, the DFU slot must
@@ -81,32 +86,6 @@ const _: () = {
     // The HAL addresses pages by a u8 index.
     assert!(STATE_PAGE <= u8::MAX as u32);
 };
-
-/// The boot-state record: two little-endian words at [`STATE_ADDR`], a state
-/// word and a swap progress word.  The app writes `BOOT_OK` and
-/// `SWAP_PENDING`, leaving the progress word erased; the bootloader reads the
-/// record on every boot, acts on it, and writes the other states and the
-/// progress word.
-pub mod boot_state {
-    use super::STATE_ADDR;
-
-    /// The app booted and confirmed itself: run it.
-    pub const BOOT_OK: u32 = 0x4F4B_4F4B;
-    /// A verified image waits in the DFU slot: swap it with the active slot
-    /// page by page, then boot it.
-    pub const SWAP_PENDING: u32 = 0x5357_4150;
-    /// The swapped-in app has not confirmed itself.  Seen at boot, it means
-    /// the new app reset before confirming, so the bootloader copies the old
-    /// image back from the DFU slot.
-    pub const SWAP_COMPLETE: u32 = 0x444F_4E45;
-    /// A revert was cut short: carry on copying the old image back.
-    pub const REVERT_PENDING: u32 = 0x5245_5654;
-
-    /// Address of the progress word: the next page index the bootloader
-    /// swaps or reverts, recorded after each page so that it can pick up
-    /// there after a power loss.  Erased flash (`0xFFFF_FFFF`) means page 0.
-    pub const PROGRESS_ADDR: u32 = STATE_ADDR + 4;
-}
 
 /// Write a cortex-m-rt `memory.x` that links a program into `length` bytes of
 /// flash at `origin`, with all of SRAM.  `length` must be a whole number of
@@ -151,7 +130,6 @@ mod tests {
         assert_eq!(DFU_BASE, 0x0802_0000);
         assert_eq!(SCRATCH_BASE, 0x0803_C000);
         assert_eq!(STATE_ADDR, 0x0803_C800);
-        assert_eq!(boot_state::PROGRESS_ADDR, 0x0803_C804);
         assert_eq!(MAX_FW_SIZE, 112 * 1024);
     }
 

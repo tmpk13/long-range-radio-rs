@@ -16,7 +16,6 @@ flash-layout = { path = "../flash-layout" }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
-panic-halt = "1.0"
 rtt-target = "0.5"
 rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
 rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }

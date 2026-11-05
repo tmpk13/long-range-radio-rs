@@ -38,10 +38,11 @@ run = [
 ]
 
 [tasks.test]
-description = "Run the host-side tests, no hardware needed: flash-layout's partition map and the unlock-check verdicts"
+description = "Run the host-side tests, no hardware needed: flash-layout's partition map and its boot log and swap under power cuts, the firmware's supervisor and reset classification, and the unlock-check verdicts"
 # The root .cargo/config.toml targets the MCU, so host tests name the host.
 run = [
     'cargo test -q -p flash-layout --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
+    'cargo test -q -p sx1262-mesh-rs --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
     "bash scripts/unlock-check-test.sh",
 ]
 

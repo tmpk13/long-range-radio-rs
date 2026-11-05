@@ -1,17 +1,24 @@
-//! Independent Watchdog (IWDG) driver for boot safety.
+//! Independent watchdog (IWDG): resets the chip when the main loop stops.
 //!
-//! The IWDG runs from the LSI oscillator (~32 kHz) and is independent of the
-//! main system clock.  Once started it **cannot be stopped** - this is by
-//! design and ensures that a stuck firmware will always reset.
+//! The IWDG runs from the LSI oscillator, independent of the system clock,
+//! and once started it cannot be stopped until the next reset.
 //!
-//! Usage:
-//! 1. Call [`start`] early in `init`, **before** `confirm_boot()`.
-//! 2. Call [`feed`] periodically in the main loop (must be called at least
-//!    once per timeout period).
-//!
-//! If the new firmware never calls `confirm_boot` or hangs, the watchdog
-//! fires a reset.  The bootloader sees `SWAP_COMPLETE` (app didn't confirm)
-//! and reverts to the previous firmware.
+//! - The bootloader starts it before jumping to the app, with the same 5 s
+//!   timeout, so the app is covered from its first instruction.  [`start`]
+//!   programs it again, and starts it when probe-rs ran the app without the
+//!   bootloader.
+//! - The main loop feeds it once per pass ([`feed`]).  A pass that blocks
+//!   longer resets the chip, and `reset_record` reports the loop phase it
+//!   was in at the next boot.  5 s is the nominal timeout; the LSI's
+//!   29.5-34 kHz over temperature (DS13105 Table 58) makes it 4.7-5.4 s.
+//! - Waits below the main loop that carry their own deadline feed it through
+//!   [`feed_now`].
+//! - A watchdog reset of an image on trial (just swapped in by an update)
+//!   makes the bootloader revert it; `supervisor` decides when the image has
+//!   run long enough to keep.
+//! - With the `debug` feature it stops counting while a debugger halts the
+//!   core, so a halt at a breakpoint or a caught fault is not reset away
+//!   under the debugger.
 
 use stm32wlxx_hal::pac;
 
@@ -20,7 +27,8 @@ const KEY_ENABLE: u16 = 0xCCCC;
 const KEY_RELOAD: u16 = 0xAAAA;
 const KEY_UNLOCK: u16 = 0x5555;
 
-/// Start the IWDG with the given timeout in milliseconds.
+/// Start the IWDG with the given timeout in milliseconds, or set that
+/// timeout on one already running.
 ///
 /// The LSI clock is ~32 kHz.  With prescaler /64 the counter ticks at
 /// ~500 Hz, giving a maximum timeout of ~8 s (reload 0xFFF = 4095).
@@ -31,6 +39,16 @@ const KEY_UNLOCK: u16 = 0x5555;
 ///
 /// Clamps to the hardware maximum of 4095.
 pub fn start(iwdg: &pac::IWDG, timeout_ms: u32) {
+    if cfg!(feature = "debug") {
+        // SAFETY: DBGMCU_APB1FZR1 only changes what the watchdog does while
+        // a debugger halts the core; nothing else in the app writes it.
+        unsafe {
+            (*pac::DBGMCU::PTR)
+                .apb1fzr1
+                .modify(|_, w| w.dbg_iwdg_stop().set_bit())
+        };
+    }
+
     // Compute reload value: LSI ~ 32 kHz, prescaler = 64 -> tick = 500 Hz
     let ticks = (timeout_ms * 500) / 1000;
     let reload = ticks.min(4095) as u16;

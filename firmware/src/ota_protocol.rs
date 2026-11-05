@@ -41,6 +41,9 @@ pub mod reason {
     pub const FLASH_ERROR: u8 = 0x04;
     pub const TIMEOUT: u8 = 0x05;
     pub const BUSY: u8 = 0x06;
+    /// The node's boot is not settled: a staged image waits for its reboot,
+    /// or the running image is on trial and has not confirmed itself yet.
+    pub const BOOT_PENDING: u8 = 0x07;
 }
 
 // -- Offer -------------------------------------------------------------------
