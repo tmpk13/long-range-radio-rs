@@ -150,14 +150,21 @@ The board has no BOOT button for the CH572D (review M3), so:
 2. PA1 (D+) pulled up to VCC before power is applied (WCH's CH572
    evaluation board manual, section 4.3, in EVT/PUB of the repo above).
    The EVB's Download button is VCC - 5.1k - PA1, with PA1 wired straight
-   to the USB-C D+ pins (EVT/PUB/CH572SCH.pdf). On this board the same:
+   to the USB-C D+ pins (EVT/PUB/CH572SCH.pdf). A CH572D on a custom board
+   enumerated this way (github.com/cnlohr/ch32fun issue 600; that board's
+   other trouble was an unsoldered exposed pad). On this board the same:
    5.1k from R41's VDD33 end to D+, then plug in. Against the
    host's 15k pull-down D+ reads about 2.5 V; about 3.0 V if the
    bootloader also turns on its internal 1.5k pull-up, which no WCH
    document says it does. Do not use +5V:
    PA1 is not 5 V tolerant (VIO33 + 0.4 V max).
 3. A WCH-LinkE on D-/D+ with wlink, catching the chip before the firmware
-   claims those pins for USB.
+   claims those pins for USB. The CH572 debugs over one wire (PA0) or two.
+   RP2040 firmwares that speak WCH's protocols (PicoDualProbe, driven by
+   minichlink) are experimental and tested only on CH32V003/V203
+   (2026-11). The debug logic has a 32 MHz clock gate (RB_CLK_OFF_DEBUG)
+   and the crystal is the chip's only 32 MHz source, so no probe is
+   likely to get an answer while the crystal is dead.
 4. The ROM also takes serial downloads on PA0/PA1 with no pull-up (same
    manual, section 4.2), from a 3.3 V UART on D-/D+. The manual does not
    say which pin is TX.
