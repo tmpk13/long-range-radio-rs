@@ -2,7 +2,7 @@
 
 One topic per file. Read this index, then only the files the task touches.
 
-- `notes/build-flash.md`: the workspace layout (three sibling crates, one package per cargo call, the root target config), the debug feature and debug_println!, pinned crates (embedded-io, ssd1306), the macro build break, OpenOCD unlock, probe-rs detection, the probe-rs reset loop with the display unplugged, attach's "Exception @ 0x08000400" (a caught reset) and silent RTT from a stale ELF.
+- `notes/build-flash.md`: the workspace layout (sibling crates, the flash-layout partition map, one package per cargo call, the root target config), the debug feature and debug_println!, pinned crates (embedded-io, ssd1306), the macro build break, OpenOCD unlock, probe-rs detection, the probe-rs reset loop with the display unplugged, attach's "Exception @ 0x08000400" (a caught reset) and silent RTT from a stale ELF.
 - `notes/boot-ota.md`: two-stage boot (set-vtor, the bootloader link address, the IWDG SR wait), the OtaReceiver stack overflow, basestation UART pins, OTA chunk null-byte truncation.
 - `notes/radio.md`: TX packet params, async TX, the XIAO TCXO, dead-radio diagnosis, the sx126x wait_on_busy fix, the SubGhz HAL API reference, LORA_PRESET, RxBoost.
 - `notes/mesh.md`: TX/RX timing and the listen period, the DWT millis() wrap behind SendingQueueIsFull, broadcast collisions.

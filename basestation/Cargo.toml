@@ -12,6 +12,7 @@ debug = []
 board = []
 
 [dependencies]
+flash-layout = { path = "../flash-layout" }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
@@ -24,3 +25,6 @@ embedded-io = "0.6"
 embedded-hal = "0.2"
 nb = "1"
 sx1262-mesh-rs = { path = "../firmware" }
+
+[build-dependencies]
+flash-layout = { path = "../flash-layout" }

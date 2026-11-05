@@ -44,6 +44,10 @@ run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset
 description = "Report the STM32WLE5's read protection level through probe-rs, and whether an unlock still awaits a power cycle; exits 0 only when unlocked"
 run = "bash scripts/unlock-check.sh"
 
-[tasks.test-scripts]
-description = "Test the host scripts in scripts/ without hardware"
-run = "bash scripts/unlock-check-test.sh"
+[tasks.test]
+description = "Run the host-side tests, no hardware needed: flash-layout's partition map and the unlock-check verdicts"
+# The root .cargo/config.toml targets the MCU, so host tests name the host.
+run = [
+    'cargo test -q -p flash-layout --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
+    "bash scripts/unlock-check-test.sh",
+]

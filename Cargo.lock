@@ -38,6 +38,7 @@ dependencies = [
  "embedded-hal 0.2.7",
  "embedded-io",
  "embedded-nano-mesh",
+ "flash-layout",
  "nb 1.1.0",
  "panic-halt",
  "rtic",
@@ -59,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "flash-layout",
  "panic-halt",
 ]
 
@@ -215,6 +217,10 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "flash-layout"
+version = "0.1.0"
 
 [[package]]
 name = "float-cmp"
@@ -611,6 +617,7 @@ dependencies = [
  "embedded-graphics",
  "embedded-io",
  "embedded-nano-mesh",
+ "flash-layout",
  "nb 1.1.0",
  "panic-halt",
  "rtic",

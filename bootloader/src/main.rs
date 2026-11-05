@@ -5,35 +5,14 @@ use panic_halt as _;
 
 use core::ptr;
 
-// -- Flash / partition constants ----------------------------------------------
+// -- Flash / partition layout --------------------------------------------------
 
-/// STM32WLE5 flash page size (2 KB).
-const PAGE_SIZE: u32 = 2048;
-
-/// Base address of internal flash.
-const FLASH_BASE: u32 = 0x0800_0000;
-
-/// ACTIVE partition: pages 8-63  (112 KB, 56 pages).
-const ACTIVE_BASE: u32 = FLASH_BASE + 8 * PAGE_SIZE; // 0x0800_4000
-const ACTIVE_PAGES: u32 = 56;
-
-/// DFU partition: pages 64-120  (114 KB, 57 pages - last page is scratch).
-const DFU_BASE: u32 = FLASH_BASE + 64 * PAGE_SIZE; // 0x0802_0000
-const SCRATCH_PAGE: u32 = DFU_BASE + 56 * PAGE_SIZE; // page 120
-
-/// Boot-state partition: page 121 (0x0803_C800).
-const STATE_ADDR: u32 = FLASH_BASE + 121 * PAGE_SIZE;
-
-// Magic words written to STATE_ADDR.
-const BOOT_OK: u32 = 0x4F4B_4F4B;
-const SWAP_PENDING: u32 = 0x5357_4150;
-const SWAP_COMPLETE: u32 = 0x444F_4E45;
-const REVERT_PENDING: u32 = 0x5245_5654;
-
-// Progress word sits right after the state magic (STATE_ADDR + 4).
-// Stores the next page index to swap (0..ACTIVE_PAGES).
-// 0xFFFF_FFFF (erased flash) means "start from 0".
-const PROGRESS_ADDR: u32 = STATE_ADDR + 4;
+// The partition map and the boot-state record (state word, then the progress
+// word: the next page index to swap or revert, erased meaning page 0).
+use flash_layout::boot_state::{
+    BOOT_OK, PROGRESS_ADDR, REVERT_PENDING, SWAP_COMPLETE, SWAP_PENDING,
+};
+use flash_layout::{ACTIVE_BASE, ACTIVE_PAGES, DFU_BASE, FLASH_BASE, PAGE_SIZE, SCRATCH_BASE, STATE_ADDR};
 
 // -- STM32WLE5 flash register addresses --------------------------------------
 
@@ -207,11 +186,11 @@ fn swap_partitions(start_page: u32) {
         let dfu_addr = DFU_BASE + i * PAGE_SIZE;
 
         // ACTIVE[i] -> scratch
-        copy_page(active_addr, SCRATCH_PAGE);
+        copy_page(active_addr, SCRATCH_BASE);
         // DFU[i] -> ACTIVE[i]
         copy_page(dfu_addr, active_addr);
         // scratch -> DFU[i]
-        copy_page(SCRATCH_PAGE, dfu_addr);
+        copy_page(SCRATCH_BASE, dfu_addr);
 
         // Persist progress so we can resume after power loss
         write_state(SWAP_PENDING, i + 1);

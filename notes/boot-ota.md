@@ -22,9 +22,10 @@ VTOR before calling `main()`:
 cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 ```
 
-Also added `cargo:rerun-if-changed=memory.x` to `build.rs` - without it,
-changing the flash origin in `memory.x` doesn't trigger a relink and the
-old binary is reused.
+A build script must also rerun when the layout changes, or the old binary
+is reused with the old flash origin. The build scripts generate `memory.x`
+from the `flash-layout` build-dependency, so a change there rebuilds and
+reruns them.
 
 ## Bootloader Linked at Wrong Address - Two-Stage Boot Silent
 
@@ -42,10 +43,11 @@ reset the CPU booted an empty 0x08000000 and the bootloader never ran. Verified
 with `readelf -S <elf> | grep vector_table` (bootloader showed 0x08004000).
 
 Fix: give each crate its own layout via `OUT_DIR`, and keep every `memory.x`
-out of the workspace root. Each `build.rs` copies its crate's `memory.x` into
-`OUT_DIR` and emits `cargo:rustc-link-search=<OUT_DIR>`. The node firmware,
-then the root package, kept its layout as `memory-app.x` until it moved into
-`firmware/`; the root now holds no crate at all. Confirmed:
+out of the workspace root. Each `build.rs` writes its crate's `memory.x`,
+generated from the `flash-layout` crate, into `OUT_DIR` and emits
+`cargo:rustc-link-search=<OUT_DIR>`. The node firmware, then the root
+package, kept its layout as `memory-app.x` until it moved into `firmware/`;
+the root now holds no crate at all. Confirmed:
 bootloader=0x08000000, app/basestation=0x08004000; flashing both then reset
 boots the app (SEGGER RTT magic present, TX heartbeats stream).
 

@@ -17,7 +17,7 @@ use core::cell::UnsafeCell;
 
 // -- Static page buffer for DFU writes (avoid stack overflow) ---------------
 
-const PAGE_SIZE: usize = 2048;
+const PAGE_SIZE: usize = flash_layout::PAGE_SIZE as usize;
 
 struct StaticPageBuf(UnsafeCell<[u8; PAGE_SIZE]>);
 unsafe impl Sync for StaticPageBuf {}
@@ -33,9 +33,9 @@ fn page_buf_mut() -> &'static mut [u8; PAGE_SIZE] {
 
 // -- Flash constants --------------------------------------------------------
 
-const FLASH_PAGE_SIZE: u32 = 2048;
-const DFU_PAGE_START: u8 = 64;
-const MAX_FW_SIZE: u32 = 56 * FLASH_PAGE_SIZE; // 112 KB
+/// First DFU page index, in the HAL's u8 page numbering.
+const DFU_PAGE_START: u8 = flash_layout::DFU_PAGE as u8;
+use flash_layout::MAX_FW_SIZE;
 
 /*
     Basestation Node - Seeed Wio-E5 (STM32WLE5JC)

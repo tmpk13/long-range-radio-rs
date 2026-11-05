@@ -1,5 +1,5 @@
 [workspace]
-members = ["firmware", "bootloader", "basestation"]
+members = ["firmware", "bootloader", "basestation", "flash-layout"]
 # A plain `cargo build` or `cargo run` here builds the mesh node firmware
 # alone.  Building all members in one call does not link: cargo unifies
 # cortex-m-rt's features across them, and the bootloader, which has no HAL

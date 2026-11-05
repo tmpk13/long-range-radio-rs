@@ -16,17 +16,10 @@ use crate::ota_protocol::{self, msg, reason, OtaChunk, OtaChunkAck, OtaOffer};
 
 // -- Flash / partition constants ---------------------------------------------
 
-const FLASH_BASE: u32 = 0x0800_0000;
-const PAGE_SIZE: u32 = 2048;
+use flash_layout::{DFU_BASE, MAX_FW_SIZE, PAGE_SIZE};
 
-/// DFU staging partition: pages 64-119 (56 data pages, matching ACTIVE size).
-const DFU_BASE: u32 = FLASH_BASE + 64 * PAGE_SIZE; // 0x0802_0000
-
-/// First DFU page index.
-const DFU_PAGE_START: u8 = 64;
-
-/// Maximum firmware size (ACTIVE partition = 112 KB = 56 pages).
-const MAX_FW_SIZE: u32 = 56 * PAGE_SIZE;
+/// First DFU page index, in the HAL's u8 page numbering.
+const DFU_PAGE_START: u8 = flash_layout::DFU_PAGE as u8;
 
 /// Silence after which an in-progress transfer is abandoned (ms).
 ///

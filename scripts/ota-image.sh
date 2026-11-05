@@ -9,8 +9,8 @@
 # newer than the firmware it runs.
 #
 # The raw image starts at the app's link address, 0x08004000
-# (firmware/memory.x), the active slot the bootloader moves a received image
-# into. objcopy is the llvm-objcopy from the toolchain's llvm-tools
+# (ACTIVE_BASE in flash-layout/src/lib.rs), the active slot the
+# bootloader moves a received image into. objcopy is the llvm-objcopy from the toolchain's llvm-tools
 # component (rust-toolchain.toml), so nothing outside rustup is needed.
 set -euo pipefail
 

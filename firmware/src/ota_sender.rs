@@ -20,13 +20,9 @@ use core::ptr;
 
 use crate::ota_protocol::{msg, CHUNK_DATA_SIZE, OtaChunk, OtaOffer};
 
-// -- Flash constants (must match ota.rs) -------------------------------------
+// -- Flash constants ---------------------------------------------------------
 
-const FLASH_BASE: u32 = 0x0800_0000;
-const PAGE_SIZE: u32 = 2048;
-
-/// DFU staging partition base address.
-const DFU_BASE: u32 = FLASH_BASE + 64 * PAGE_SIZE; // 0x0802_0000
+use flash_layout::DFU_BASE;
 
 // -- Sender state ------------------------------------------------------------
 

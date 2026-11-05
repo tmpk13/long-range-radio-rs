@@ -1,0 +1,9 @@
+[package]
+edition      = "2024"
+name         = "flash-layout"
+rust-version = "1.88"
+version      = "0.1.0"
+
+# No dependencies: the bootloader uses this crate too, and it must not pull
+# in the HAL (see the workspace manifest on cortex-m-rt's features).
+[dependencies]

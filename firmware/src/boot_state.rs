@@ -1,23 +1,20 @@
 //! Read/write helpers for the bootloader state partition.
 //!
-//! The boot state lives at page 121 (`0x0803_C800`).  The first 4 bytes are a
-//! magic word indicating the current state; the next 4 bytes track swap
-//! progress (used only by the bootloader itself).
+//! The boot state lives on its own flash page (`flash_layout::STATE_ADDR`).
+//! The first 4 bytes are a magic word indicating the current state; the next
+//! 4 bytes track swap progress (used only by the bootloader itself).
 
 use core::ptr;
 
+use flash_layout::STATE_ADDR;
 use stm32wlxx_hal::flash::{AlignedAddr, Flash, Page};
 use stm32wlxx_hal::pac;
 
-/// Base address of the boot-state page.
-const STATE_ADDR: u32 = 0x0803_C800;
+/// Page index for the boot-state page, in the HAL's u8 page numbering.
+const STATE_PAGE_IDX: u8 = flash_layout::STATE_PAGE as u8;
 
-/// Page index for the boot-state page.
-const STATE_PAGE_IDX: u8 = 121;
-
-// Magic values (must match the bootloader).
-pub const BOOT_OK: u32 = 0x4F4B_4F4B;
-pub const SWAP_PENDING: u32 = 0x5357_4150;
+// The magic values the bootloader acts on.
+pub use flash_layout::boot_state::{BOOT_OK, SWAP_PENDING};
 
 /// Read the current boot-state magic word.
 pub fn read() -> u32 {

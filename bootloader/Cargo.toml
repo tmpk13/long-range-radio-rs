@@ -4,6 +4,10 @@ name    = "bootloader"
 version = "0.1.0"
 
 [dependencies]
+flash-layout = { path = "../flash-layout" }
 cortex-m    = "0.7"
 cortex-m-rt = "0.7"
 panic-halt  = "1.0"
+
+[build-dependencies]
+flash-layout = { path = "../flash-layout" }

@@ -3,14 +3,19 @@
 ## Workspace layout: three firmware crates side by side
 
 The node firmware (`firmware/`), the bootloader and the basestation are
-sibling crates; the root holds only the workspace manifest and shared
-config. Each part of that layout answers a failure:
+sibling crates, and `flash-layout/` holds the partition map all three link
+against; the root holds only the workspace manifest and shared config.
+Each part of that layout answers a failure:
 
 - No `memory.x` may sit in the workspace root. The linker runs there, so
   cortex-m-rt's `INCLUDE memory.x` would find that file first for every
   member (boot-ota.md, "Bootloader Linked at Wrong Address"). For that
   reason the node firmware, while it was the root package, kept its layout
   as `memory-app.x`.
+- The partition map lives only in `flash-layout`, and each build script
+  generates its crate's `memory.x` from it. It used to be restated in three
+  `memory.x` files and five source files, and a bootloader and an app that
+  disagree about it break over-the-air updates without any build error.
 - One package per cargo call. Building several members at once unifies
   cortex-m-rt's features, so the HAL's `device` feature reaches the
   bootloader, which has no `device.x`, and its link fails.
@@ -18,10 +23,11 @@ config. Each part of that layout answers a failure:
   `cargo run` at the root on the node firmware; the mise tasks pass `-p`.
 - The root `.cargo/config.toml` sets `build.target = thumbv7em-none-eabi`
   for every crate below the root, and a nearer config cannot unset it
-  (cargo appends arrays and has no unset for a scalar). A host-side Rust
-  crate, such as host tests or a Rust port of `basestation/host/`, needs
-  an explicit `--target` or a home outside this repo's config. The crates
-  used to carry identical copies of that config; only the root one is left.
+  (cargo appends arrays and has no unset for a scalar). Host-side Rust,
+  such as `flash-layout`'s tests or a Rust port of `basestation/host/`,
+  needs an explicit `--target`, as `mise run test` passes, or a home
+  outside this repo's config. The crates used to carry identical copies of
+  that config; only the root one is left.
 
 Moving the crate into `firmware/` left eight of ten images (every feature
 set, bootloader, basestation) byte-identical. The two `sensor` images
