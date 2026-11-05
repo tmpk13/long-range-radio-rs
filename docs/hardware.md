@@ -4,7 +4,8 @@
 
 The current board: KiCad project in `~/forest/Forest-Sensor-Platform`
 (main, buck and USB sheets). Wio-E5 pin use is in ARCHITECTURE.md (Pin
-allocation), the CH572D's in `ch572/src/hw.rs`, and the board support in
+allocation), the CH572D's in `src/hw.rs` of ch572-bridge-rs
+(`~/forest/ch572-bridge-rs`), and the board support in
 `notes/board.md`.
 
 ## First prototype board using Seeed Wio-E5

@@ -125,3 +125,19 @@ the driver on for the request, then reverses both.
   SEN0600's start-up time has not been measured.
 - `rs422` and `gps-radio-log` both need USART1, so lib.rs refuses the
   combination with a compile_error.
+
+## First bring-up
+
+The CH572D bridge comes first: steps 1-4 of First bring-up in
+ch572-bridge-rs (`~/forest/ch572-bridge-rs/NOTES.md`) take a new board
+from the power check to the bridge enumerating. Then, through the bridge
+(not yet run on hardware):
+
+1. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
+   (RDP 1); `mise run unlock` erases it (notes/build-flash.md; SW1 is the
+   NRST button if reset needs holding). Then `probe-rs info --chip
+   STM32WLE5JCIx` reads it (RM0461 gives DPIDR 0x5BA02477).
+2. `mise run bootloader`, `ADDRESS=2 mise run flash --features board`,
+   and RTT via `mise run attach`.
+3. Serial: the basestation built with `board`, `mise run data-relay -p
+   /dev/ttyACM0`.

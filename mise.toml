@@ -1,21 +1,11 @@
-[tools]
-# Runs ch572/isp.py, the CH572D flasher, with pyusb in a throwaway env.
-pixi = "0.66.0"
-# Reads CH572D chip info and config (wchisp info); it cannot flash this chip
-# (ch572/isp.py).  CH570/CH572 support is only on main (0.3.0 predates it).
-"cargo:https://github.com/ch32-rs/wchisp" = "rev:553327eeeea9fdc30414f1e5c74d1ff14b228a26"
-
 [tasks.build]
-description = "Build the app, bootloader, basestation and CH572D firmware (release) without flashing"
+description = "Build the app, bootloader and basestation (release) without flashing"
 # One cargo call per package: a single --workspace build unifies cortex-m-rt
 # features across members and the bootloader then fails to link (no device.x).
-# The CH572D crate is its own workspace with its own target, built from its
-# directory so its .cargo/config.toml applies.
 run = [
     "cargo build --release",
     "cargo build --release -p bootloader",
     "cargo build --release -p basestation",
-    "cd ch572 && cargo build --release",
 ]
 
 [tasks.bootloader]
@@ -45,28 +35,3 @@ run = "python3 basestation/host/data_relay.py"
 [tasks.unlock]
 description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe; hold NRST low as notes/build-flash.md describes"
 run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
-
-[tasks.ch572-flash]
-description = "Build and flash the CH572D USB bridge with ch572/isp.py; waits 30 s for the ROM bootloader (blank chip at plug-in, or mise run ch572-boot)"
-dir = "ch572"
-run = "cargo run --release"
-
-[tasks.ch572-boot]
-description = "Restart a running CH572D bridge into its ROM bootloader (1200 baud touch); PORT defaults to /dev/ttyACM0"
-run = 'stty -F "${PORT:-/dev/ttyACM0}" 1200'
-
-[tasks.ch572-test]
-description = "Run the CH572D host tests: USB driver, SWD and bridge against simulated hardware, and the isp.py flasher"
-dir = "ch572"
-run = [
-    'cargo test --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
-    "pixi exec -s python=3.12 -s pytest python -I -m pytest -q test_isp.py",
-]
-
-[tasks.udev]
-description = "Install udev rules for the CH572D's ROM bootloader and USB bridge; runs sudo, once per machine"
-run = [
-    "sudo install -m 644 ch572/70-fsp-ch572.rules /etc/udev/rules.d/",
-    "sudo udevadm control --reload-rules",
-    "sudo udevadm trigger",
-]
