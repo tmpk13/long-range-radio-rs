@@ -5,9 +5,9 @@
 [build]
 target = "riscv32imc-unknown-none-elf"
 
-# The CH572D's ROM bootloader over USB; wchisp needs a release newer than
-# 0.3.0 for the CH572 (see notes/ch572.md).  The bootloader leaves USB
-# about 10 s after it enumerates, so wchisp waits up to 30 s for it: start
-# the flash first, then plug the board in.
+# The CH572D's ROM bootloader over USB, through isp.py: wchisp reports
+# success on this chip while writing nothing (see isp.py and
+# notes/ch572.md).  isp.py waits 30 s for the bootloader.  The path is
+# relative, so run cargo from this directory (mise run ch572-flash does).
 [target.riscv32imc-unknown-none-elf]
-runner = "wchisp -u -r 30 flash"
+runner = "pixi exec -s python=3.12 -s pyusb -s libusb python -I isp.py --wait 30"

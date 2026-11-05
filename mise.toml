@@ -1,6 +1,8 @@
 [tools]
-# Flashes the CH572D through its ROM bootloader over USB.  CH570/CH572
-# support is only on main (the last release, 0.3.0, predates it).
+# Runs ch572/isp.py, the CH572D flasher, with pyusb in a throwaway env.
+pixi = "0.66.0"
+# Reads CH572D chip info and config (wchisp info); it cannot flash this chip
+# (ch572/isp.py).  CH570/CH572 support is only on main (0.3.0 predates it).
 "cargo:https://github.com/ch32-rs/wchisp" = "rev:553327eeeea9fdc30414f1e5c74d1ff14b228a26"
 
 [tasks.build]
@@ -45,7 +47,7 @@ description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP pro
 run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
 
 [tasks.ch572-flash]
-description = "Build and flash the CH572D USB bridge with wchisp; waits 30 s for the ROM bootloader (blank chip at plug-in, or mise run ch572-boot)"
+description = "Build and flash the CH572D USB bridge with ch572/isp.py; waits 30 s for the ROM bootloader (blank chip at plug-in, or mise run ch572-boot)"
 dir = "ch572"
 run = "cargo run --release"
 
@@ -54,9 +56,12 @@ description = "Restart a running CH572D bridge into its ROM bootloader (1200 bau
 run = 'stty -F "${PORT:-/dev/ttyACM0}" 1200'
 
 [tasks.ch572-test]
-description = "Run the CH572D firmware's host tests: USB driver, SWD and bridge against simulated hardware"
+description = "Run the CH572D host tests: USB driver, SWD and bridge against simulated hardware, and the isp.py flasher"
 dir = "ch572"
-run = 'cargo test --lib --target "$(rustc -vV | sed -n "s/^host: //p")"'
+run = [
+    'cargo test --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
+    "pixi exec -s python=3.12 -s pytest python -I -m pytest -q test_isp.py",
+]
 
 [tasks.udev]
 description = "Install udev rules for the CH572D's ROM bootloader and USB bridge; runs sudo, once per machine"

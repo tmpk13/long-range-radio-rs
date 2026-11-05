@@ -125,12 +125,24 @@ RB_UIF_TRANSFER is cleared. Handling follows WCH's CH572 COM example:
 - probe-rs's udev rules cover neither that ID nor the WCH ROM
   bootloader's (4348:55e0, 1a86:55e0). `mise run udev` installs
   `ch572/70-fsp-ch572.rules`, which covers all three.
-- Flashing is over USB through the ROM bootloader with wchisp. CH570/CH572
-  support is only on wchisp's main branch (added 2025-12, after 0.3.0), so
-  mise.toml pins a commit. A blank chip starts in the bootloader with no
-  pull-up (first board, 2026-11-04); it shows as 1a86:55e0 and leaves USB
-  about 10 s after it enumerates if no tool talks to it, so wchisp waits
-  for it: start the flash, then plug in. wlink
+- Flashing is over USB through the ROM bootloader (BTVER 02.30) with
+  `ch572/isp.py`, not wchisp. The bootloader answers identify, config
+  read, the key exchange and erase, but every program and verify returns
+  result 0xFE (0x35 for the first verify of a session) until the config
+  registers are written (first board: in that session). wchisp never
+  writes them on a flash and does not check program results, so it reports
+  success with nothing written; only its verify fails. Ruled out on the
+  first board: the XOR key (the 64 keys of wchisp's form that give the
+  handshake's checksum), chunk lengths 8-48, identify with the real chip
+  ID, and key-before-erase. isp.py writes back the 12 config bytes it
+  reads, as WCH's tool does; that turned CFG_ROM_READ from 0x3A to 0xFF
+  (debug read-out protection on), which USB flashing does not mind.
+  Whether a later session needs the write again, or any write, is not
+  known; isp.py always sends it.
+- A blank chip starts in the bootloader with no pull-up (first board,
+  2026-11-04); it shows as 1a86:55e0 and leaves USB about 10 s after it
+  enumerates if no tool talks to it, 61 s after the last command if one
+  did. isp.py waits for it: start the flash, then plug in. wlink
   0.1.3 (WCH-LinkE) also supports the CH572 over its 2-wire debug pins,
   which are PA0/PA1, the USB lines, and which the firmware turns off when
   it attaches to USB.
@@ -192,9 +204,10 @@ fixed (pad 21 is on GND):
 
 ## First bring-up
 
-The first board reached the CH572D's bootloader (2026-11-04) after the
-faults in Forest-Sensor-Platform CH572D-BRINGUP.md; flashing and the rest
-have not run on hardware yet. In order:
+The first board passed steps 1-4 (2026-11-04), after the faults in
+Forest-Sensor-Platform CH572D-BRINGUP.md and the flashing problem under
+"IDs, permissions, flashing"; the rest has not run on hardware yet. In
+order:
 
 1. Power check before USB: 3.3 V into J4 (or J2 pin 3), nothing else
    attached, SD slot empty. Expect about 3-8 mA, 11 mA at datasheet
@@ -222,8 +235,8 @@ have not run on hardware yet. In order:
    draws less than the ~1.13 mA that R41 feeds it (not running, or not
    grounded), and the LDO cannot sink the rest; unplug, it is over the
    4.0 V absolute maximum. Then unplug, start `mise run ch572-flash`
-   (wchisp waits 30 s) and plug in: a blank chip's bootloader shows as
-   1a86:55e0 for about 10 s.
+   (isp.py waits 30 s) and plug in: a blank chip's bootloader shows as
+   1a86:55e0, and isp.py ends with "verified".
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
