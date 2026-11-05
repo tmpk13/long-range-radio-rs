@@ -127,9 +127,10 @@ RB_UIF_TRANSFER is cleared. Handling follows WCH's CH572 COM example:
   `ch572/70-fsp-ch572.rules`, which covers all three.
 - Flashing is over USB through the ROM bootloader with wchisp. CH570/CH572
   support is only on wchisp's main branch (added 2025-12, after 0.3.0), so
-  mise.toml pins a commit. The board review says a blank chip enumerates
-  on its own; no WCH document says so, and the first board could not tell
-  (its crystal was shorted). Use the PA1 pull-up below. wlink
+  mise.toml pins a commit. A blank chip starts in the bootloader with no
+  pull-up (first board, 2026-11-04); it shows as 1a86:55e0 and leaves USB
+  about 10 s after it enumerates if no tool talks to it, so wchisp waits
+  for it: start the flash, then plug in. wlink
   0.1.3 (WCH-LinkE) also supports the CH572 over its 2-wire debug pins,
   which are PA0/PA1, the USB lines, and which the firmware turns off when
   it attaches to USB.
@@ -154,9 +155,9 @@ The board has no BOOT button for the CH572D (review M3), so:
    enumerated this way (github.com/cnlohr/ch32fun issue 600; that board's
    other trouble was an unsoldered exposed pad). On this board the same:
    5.1k from R41's VDD33 end to D+, then plug in. Against the
-   host's 15k pull-down D+ reads about 2.5 V; about 3.0 V if the
-   bootloader also turns on its internal 1.5k pull-up, which no WCH
-   document says it does. Do not use +5V:
+   host's 15k pull-down D+ reads about 2.5 V until the bootloader runs and
+   adds its own pull-up (a blank chip enumerates without the 5.1k), then
+   about 3.0 V. Do not use +5V:
    PA1 is not 5 V tolerant (VIO33 + 0.4 V max).
 3. A WCH-LinkE on D-/D+ with wlink, catching the chip before the firmware
    claims those pins for USB. The CH572 debugs over one wire (PA0) or two.
@@ -220,11 +221,9 @@ have not run on hardware yet. In order:
    in: VDD33 at R41's chip end reads 3.2-3.4 V. Higher means the chip
    draws less than the ~1.13 mA that R41 feeds it (not running, or not
    grounded), and the LDO cannot sink the rest; unplug, it is over the
-   4.0 V absolute maximum. Then unplug, fit the PA1 pull-up ("Getting back
-   into the bootloader", method 2), start `mise run ch572-flash` (wchisp
-   waits 30 s) and plug in. The bootloader shows as 1a86:55e0 and leaves
-   USB about 10 s after it enumerates if no tool talks to it. Remove the
-   pull-up after flashing.
+   4.0 V absolute maximum. Then unplug, start `mise run ch572-flash`
+   (wchisp waits 30 s) and plug in: a blank chip's bootloader shows as
+   1a86:55e0 for about 10 s.
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected

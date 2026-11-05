@@ -45,7 +45,7 @@ description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP pro
 run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
 
 [tasks.ch572-flash]
-description = "Build and flash the CH572D USB bridge with wchisp; waits 30 s for the ROM bootloader (PA1 pull-up at plug-in, or mise run ch572-boot)"
+description = "Build and flash the CH572D USB bridge with wchisp; waits 30 s for the ROM bootloader (blank chip at plug-in, or mise run ch572-boot)"
 dir = "ch572"
 run = "cargo run --release"
 
