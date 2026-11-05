@@ -129,6 +129,27 @@ Debug Port: DPv2, Designer: STMicroelectronics, Part: 0x4970, Revision: 0x0, Ins
     └── 1 MemoryAP (AmbaAhb3)
 ```
 
+The `0xf0000000` error is AP1, the second core's port on the dual-core
+STM32WL55: its BASE reads 0xF0000003 but every access behind it FAULTs
+on the WLE5. Harmless.
+
+### Read protection
+
+`probe-rs info` succeeds at RDP level 1 too (the DP, APs and ROM table
+stay readable), so it does not show that a chip is unlocked. The RDP
+byte is the low byte of FLASH_OPTR (RM0461):
+
+``` sh
+$ probe-rs read --chip STM32WLE5JCIx b32 0x58004020 1
+3ffff0bb
+```
+
+0xAA is level 0, 0xCC level 2 (permanent), anything else level 1; a
+factory Wio-E5 reads 0xBB. At level 1 with a debugger attached, flash
+reads through the AP FAULT and the core cannot fetch its vectors, so it
+sits in lockup (DHCSR 0x03090000, S_LOCKUP). The OpenOCD unlock above
+(`mise run unlock`) sets level 0, which erases the flash.
+
 ---
 
 ## Crate version bumps: embedded-io and ssd1306 must stay pinned
