@@ -23,4 +23,4 @@ embedded-nano-mesh = "2.1"
 embedded-io = "0.6"
 embedded-hal = "0.2"
 nb = "1"
-sx1262-mesh-rs = { path = ".." }
+sx1262-mesh-rs = { path = "../firmware" }

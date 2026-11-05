@@ -5,7 +5,7 @@
 Feature-gated support for the Forest Sensor Platform V1 board
 ([Forest-Sensor-Platform](https://github.com/tmpk13/Forest-Sensor-Platform),
 KiCad 10). The pin map lives in the
-`src/board.rs` module doc and in ARCHITECTURE.md; it was taken from a
+`firmware/src/board.rs` module doc and in ARCHITECTURE.md; it was taken from a
 kicad-cli netlist export of `Forest-Sensor-Platform.kicad_sch`, which
 pulls in the buck and USB sheets. The board's predecessor, the
 `buck-converter-mppt-nimh` charger board, is no longer supported; git

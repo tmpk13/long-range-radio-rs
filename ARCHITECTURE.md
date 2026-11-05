@@ -6,7 +6,7 @@ transitioning to standby before TX, then polling the IRQ register for
 `TxDone` or `Timeout` rather than blocking on the DIO1 pin.
 
 Everything below hangs off the single priority-1 RTIC task in
-`bin/main.rs`; the cfg-gated blocks are cargo features. That single
+`firmware/src/bin/main.rs`; the cfg-gated blocks are cargo features. That single
 priority is what makes `SharedI2c`'s `RefCell` sound.
 
 ```mermaid
@@ -90,7 +90,7 @@ numbers are module pads.
 | SD card  | PB3 (SCK), PB4 (MISO), PB5 (MOSI), PA0 (CS) | SPI1; no card-detect line |
 | RS-485   | PB6 (TX), PB7 (RX), PA9 (DE), PB9 (/RE) | USART1 to the TPT482, `rs422` feature |
 | Host link | PA2 (TX), PA3 (RX) | USART2 to the CH572D USB bridge; the basestation's link with `board` |
-| Senses   | PB13 (VIN), PA10 (VBAT), PB14 (IBAT) | ADC_IN0/6/1, see `src/board.rs` for scaling |
+| Senses   | PB13 (VIN), PA10 (VBAT), PB14 (IBAT) | ADC_IN0/6/1, see `firmware/src/board.rs` for scaling |
 | Buck PWM | PB10 | TIM2_CH3, high = switch on |
 | 5V_EN    | PC0 | Switched 5 V rail (J7 sensor supply, CH572D) |
 | LED      | PC1 | D12, active low |

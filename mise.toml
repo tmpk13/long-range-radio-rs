@@ -3,7 +3,7 @@ description = "Build the app, bootloader and basestation (release) without flash
 # One cargo call per package: a single --workspace build unifies cortex-m-rt
 # features across members and the bootloader then fails to link (no device.x).
 run = [
-    "cargo build --release",
+    "cargo build --release -p sx1262-mesh-rs",
     "cargo build --release -p bootloader",
     "cargo build --release -p basestation",
 ]
@@ -14,7 +14,7 @@ run = "cargo run --release -p bootloader"
 
 [tasks.flash]
 description = "Build, flash and attach RTT to a mesh node; ADDRESS, LORA_PRESET, FW_VERSION and RX_BOOST come from the environment, extra args go to cargo"
-run = "cargo run --release"
+run = "cargo run --release -p sx1262-mesh-rs"
 
 [tasks.attach]
 description = "Attach probe-rs RTT to a running mesh node"

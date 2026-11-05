@@ -1,0 +1,45 @@
+[package]
+edition      = "2024"
+name         = "sx1262-mesh-rs"
+rust-version = "1.88"
+version      = "0.1.0"
+
+[[bin]]
+name = "sx1262-mesh-rs"
+path = "src/bin/main.rs"
+
+[features]
+default = []
+debug = []
+# Forest Sensor Platform V1 board: solar MPPT charger (voltage/current
+# sensing, buck PWM), SD card, activity LED, switched 5 V rail.
+# Raises the system clock from 4 MHz to 16 MHz for PWM resolution.
+board = []
+# RS-485 link on the board's TPT482 (USART1, DE on PA9, /RE on PB9) with
+# a Modbus RTU master; reads the DFRobot SEN0600 soil probe, powered from
+# the switched 5 V rail.
+rs422 = ["board", "dep:nb"]
+# I2C environmental sensor suite on the shared I2C2 bus: BME680, SCD41,
+# ADXL345/343, AS3935, BMV080 (presence only).
+sensor = []
+# NMEA GPS on USART1 (PB7 RX, 9600 8N1), kept powered and active.
+# Logs GPS sentences plus radio TX/RX events (RSSI, SNR, signal RSSI)
+# and periodic LoRa packet stats to a raw block region of the SD card.
+# On the Forest Sensor Platform PB7 is the RS-485 receiver output, so
+# NMEA arrives over the J7 bus, and this cannot be combined with rs422.
+gps-radio-log = ["board", "dep:nb"]
+
+[dependencies]
+nb = { version = "1", optional = true }
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
+stm32wlxx-hal = { version = "0.6", features = ["stm32wle5", "rt"] }
+panic-halt = "1.0"
+rtt-target = "0.6.2"
+
+ssd1306 = "0.8"
+embedded-graphics = "0.8"
+rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
+rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }
+embedded-nano-mesh = "2.1.11"
+embedded-io = "0.6"

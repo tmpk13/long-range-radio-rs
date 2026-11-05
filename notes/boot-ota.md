@@ -41,10 +41,11 @@ workspace root regardless of `cd`, so the bare root `memory.x` (ORIGIN
 reset the CPU booted an empty 0x08000000 and the bootloader never ran. Verified
 with `readelf -S <elf> | grep vector_table` (bootloader showed 0x08004000).
 
-Fix: give each crate its own layout via `OUT_DIR` and remove the shadowing
-bare file from the workspace root. Renamed the root `memory.x` to
-`memory-app.x`; each `build.rs` now copies its crate's file into `OUT_DIR` as
-`memory.x` and emits `cargo:rustc-link-search=<OUT_DIR>`. Confirmed:
+Fix: give each crate its own layout via `OUT_DIR`, and keep every `memory.x`
+out of the workspace root. Each `build.rs` copies its crate's `memory.x` into
+`OUT_DIR` and emits `cargo:rustc-link-search=<OUT_DIR>`. The node firmware,
+then the root package, kept its layout as `memory-app.x` until it moved into
+`firmware/`; the root now holds no crate at all. Confirmed:
 bootloader=0x08000000, app/basestation=0x08004000; flashing both then reset
 boots the app (SEGGER RTT magic present, TX heartbeats stream).
 

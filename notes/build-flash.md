@@ -1,5 +1,36 @@
 # Build, debug and flashing
 
+## Workspace layout: three firmware crates side by side
+
+The node firmware (`firmware/`), the bootloader and the basestation are
+sibling crates; the root holds only the workspace manifest and shared
+config. Each part of that layout answers a failure:
+
+- No `memory.x` may sit in the workspace root. The linker runs there, so
+  cortex-m-rt's `INCLUDE memory.x` would find that file first for every
+  member (boot-ota.md, "Bootloader Linked at Wrong Address"). For that
+  reason the node firmware, while it was the root package, kept its layout
+  as `memory-app.x`.
+- One package per cargo call. Building several members at once unifies
+  cortex-m-rt's features, so the HAL's `device` feature reaches the
+  bootloader, which has no `device.x`, and its link fails.
+  `default-members = ["firmware"]` keeps a plain `cargo build` or
+  `cargo run` at the root on the node firmware; the mise tasks pass `-p`.
+- The root `.cargo/config.toml` sets `build.target = thumbv7em-none-eabi`
+  for every crate below the root, and a nearer config cannot unset it
+  (cargo appends arrays and has no unset for a scalar). A host-side Rust
+  crate, such as host tests or a Rust port of `basestation/host/`, needs
+  an explicit `--target` or a home outside this repo's config. The crates
+  used to carry identical copies of that config; only the root one is left.
+
+Moving the crate into `firmware/` left eight of ten images (every feature
+set, bootloader, basestation) byte-identical. The two `sensor` images
+differed by 65 bytes: the package path feeds the symbol hashes, which
+reordered two rodata constants, so their addresses changed in a few
+instructions. Expect the same from any future move, and compare images
+with `RUSTFLAGS=--remap-path-prefix=firmware/=` so panic-location paths
+match.
+
 ## Debug Mode
 
 A `debug` cargo feature gates verbose output via a `debug_println!` macro.

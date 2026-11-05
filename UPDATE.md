@@ -44,7 +44,7 @@ cargo build --release
 cargo run --release
 ```
 
-### Boot State (`src/boot_state.rs`)
+### Boot State (`firmware/src/boot_state.rs`)
 
 Application-side helpers for the boot state partition. Uses the HAL
 `Flash` API (`page_erase` + `program_bytes`).
@@ -55,7 +55,7 @@ Application-side helpers for the boot state partition. Uses the HAL
 - `request_swap(flash)` -- writes `SWAP_PENDING`. Called after a
   successful OTA transfer to trigger the swap on reboot.
 
-### OTA Protocol (`src/ota_protocol.rs`)
+### OTA Protocol (`firmware/src/ota_protocol.rs`)
 
 All messages fit in a 32-byte `embedded-nano-mesh` payload. The first byte
 is the message type; remaining bytes carry the payload.
@@ -75,7 +75,7 @@ Reject/abort reason codes: `NO_SPACE` (0x01), `BAD_VERSION` (0x02),
 
 Each chunk carries **28 bytes** of firmware data (32 - 1 type - 2 index - 1 reserved).
 
-### OTA Receiver (`src/ota.rs`)
+### OTA Receiver (`firmware/src/ota.rs`)
 
 State machine integrated into the RTIC main loop. Incoming mesh messages
 with a type byte in `0xF0..=0xF6` are routed to `OtaReceiver::handle_message()`.
@@ -98,7 +98,7 @@ Transfer flow:
 Duplicate or out-of-order chunks are handled by re-ACKing with the
 current `next_needed` index.
 
-### Main Loop Integration (`src/bin/main.rs`)
+### Main Loop Integration (`firmware/src/bin/main.rs`)
 
 - The `FLASH` peripheral is extracted in `init` and passed as a `Local` resource.
 - `boot_state::confirm_boot()` is called during `init` after the radio
@@ -138,7 +138,7 @@ ADDRESS=1 cargo build --release -p sx1262-mesh-rs
 cargo build --release -p bootloader
 ```
 
-### OTA Sender (`src/ota_sender.rs`)
+### OTA Sender (`firmware/src/ota_sender.rs`)
 
 State machine for initiating OTA transfers from a gateway node.  Reads
 firmware data directly from the DFU flash partition and pushes it
@@ -154,7 +154,7 @@ Usage:
    and route incoming OTA responses to `handle_message()`.
 5. Retransmission on timeout (~2 s) is handled internally.
 
-### Watchdog Timer (`src/watchdog.rs`)
+### Watchdog Timer (`firmware/src/watchdog.rs`)
 
 Independent Watchdog (IWDG) driver for boot safety.  Started in `init`
 with a 5-second timeout **before** `confirm_boot()` is called.
