@@ -98,5 +98,5 @@ numbers are module pads.
 
 ## CH572D USB bridge
 
-Its firmware, with a diagram of the modules, is ch572-bridge-rs
-(`~/forest/ch572-bridge-rs`, ARCHITECTURE.md there).
+Its firmware, with a diagram of the modules, is ch572-bridge-rs: see its
+[ARCHITECTURE.md](https://github.com/tmpk13/ch572-bridge-rs/blob/main/ARCHITECTURE.md).

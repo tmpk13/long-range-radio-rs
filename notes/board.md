@@ -3,7 +3,8 @@
 ## Board support (`board` feature)
 
 Feature-gated support for the Forest Sensor Platform V1 board
-(`~/forest/Forest-Sensor-Platform`, KiCad 10). The pin map lives in the
+([Forest-Sensor-Platform](https://github.com/tmpk13/Forest-Sensor-Platform),
+KiCad 10). The pin map lives in the
 `src/board.rs` module doc and in ARCHITECTURE.md; it was taken from a
 kicad-cli netlist export of `Forest-Sensor-Platform.kicad_sch`, which
 pulls in the buck and USB sheets. The board's predecessor, the
@@ -129,10 +130,10 @@ the driver on for the request, then reverses both.
 ## First bring-up
 
 The CH572D bridge comes first: steps 1-4 of First bring-up in
-ch572-bridge-rs (`~/forest/ch572-bridge-rs/NOTES.md`) take a new board
-from the power check to the bridge enumerating. Then, through the bridge
-(step 1's commands worked on the first board on 2026-11-04; no result
-recorded yet for 2 and 3):
+[ch572-bridge-rs NOTES.md](https://github.com/tmpk13/ch572-bridge-rs/blob/main/NOTES.md#first-bring-up)
+take a new board from the power check to the bridge enumerating. Then,
+through the bridge (step 1's commands worked on the first board on
+2026-11-04; no result recorded yet for 2 and 3):
 
 1. `probe-rs list` shows the probe, and `probe-rs info --chip
    STM32WLE5JCIx` reads the Wio-E5 (RM0461 gives DPIDR 0x5BA02477; the
