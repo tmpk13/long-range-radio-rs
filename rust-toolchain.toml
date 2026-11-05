@@ -1,3 +1,5 @@
 [toolchain]
 channel = "stable"
 targets = ["thumbv7em-none-eabi"]
+# llvm-objcopy, for the raw OTA image (scripts/ota-image.sh)
+components = ["llvm-tools"]

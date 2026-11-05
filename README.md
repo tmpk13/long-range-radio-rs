@@ -14,11 +14,12 @@ into a serial port and a CMSIS-DAP probe for the Wio-E5.
 - `ADDRESS=2 mise run flash`: build, flash and attach RTT to node 2; append `--features debug` for verbose logging, `--features board` on the Forest Sensor Platform
 - `mise run attach`: attach RTT to a running node
 - `ADDRESS=10 mise run basestation`: build and flash the basestation node (`--features board` puts its host link on the board's USB-C)
-- `mise run ota-upload -p /dev/ttyUSB0 -t 2 -v 3 firmware.bin`: upload firmware to node 2 as version 3 through the basestation
+- `ADDRESS=2 FW_VERSION=3 mise run ota-image`: build `target/firmware.bin` for node 2 as version 3 (pass the node's `--features`)
+- `mise run ota-upload -p /dev/ttyUSB0 -t 2 -v 3 target/firmware.bin`: upload that image to node 2 through the basestation
 - `mise run data-relay -p /dev/ttyACM0`: relay mesh data from the basestation as JSON lines
 - `mise run build`: build the app, bootloader and basestation without flashing
 
-`mise tasks` lists the rest. First-time board setup: notes/board.md (First bring-up).
+`mise tasks` lists the rest. Testing a new board, from first power on: docs/v1-board-test.md.
 Design notes: NOTES.md. Components: ARCHITECTURE.md.
 Hardware reference: docs/hardware.md.
 

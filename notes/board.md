@@ -129,19 +129,10 @@ the driver on for the request, then reverses both.
 
 ## First bring-up
 
-The CH572D bridge comes first: steps 1-4 of First bring-up in
-[ch572-bridge-rs NOTES.md](https://github.com/tmpk13/ch572-bridge-rs/blob/main/NOTES.md#first-bring-up)
-take a new board from the power check to the bridge enumerating. Then,
-through the bridge (step 1's commands worked on the first board on
-2026-11-04; no result recorded yet for 2 and 3):
-
-1. `probe-rs list` shows the probe, and `probe-rs info --chip
-   STM32WLE5JCIx` reads the Wio-E5 (RM0461 gives DPIDR 0x5BA02477; the
-   first board read 0x6BA02477), read-protected or not. It ships at
-   RDP 1: `mise run unlock-check` reports the level; clear it with `mise
-   run unlock`, power-cycle the board so the option bytes load, and run
-   the check again (notes/build-flash.md, Read protection).
-2. `mise run bootloader`, `ADDRESS=2 mise run flash --features board`,
-   and RTT via `mise run attach`.
-3. Serial: the basestation built with `board`, `mise run data-relay -p
-   /dev/ttyACM0`.
+The procedure, from an unpowered board to a charging mesh node, is the
+checklist in [docs/v1-board-test.md](../docs/v1-board-test.md). Results
+on the first board: the CH572D bridge passed steps 1-4 of its bring-up
+on 2026-11-04, and probe-rs read the Wio-E5 through it the same day, at
+RDP 1. RM0461 gives DPIDR 0x5BA02477; that board read 0x6BA02477.
+Nothing yet from the `board` build or the serial link (checklist
+sections 5 and 9).

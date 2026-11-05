@@ -24,6 +24,10 @@ run = "probe-rs attach --chip STM32WLE5JCIx --rtt-scan-memory target/thumbv7em-n
 description = "Build, flash and attach RTT to the basestation node; set ADDRESS (e.g. 10)"
 run = "cargo run --release -p basestation"
 
+[tasks.ota-image]
+description = "Build target/firmware.bin for ota-upload; set the target node's ADDRESS and a higher FW_VERSION, and pass its cargo features (e.g. --features board)"
+run = "bash scripts/ota-image.sh"
+
 [tasks.ota-upload]
 description = "Upload a firmware image to a node through the basestation (args: -p PORT -t TARGET -v VERSION FILE)"
 run = "python3 basestation/host/ota_upload.py"
