@@ -135,10 +135,11 @@ from the power check to the bridge enumerating. Then, through the bridge
 recorded yet for 2 and 3):
 
 1. `probe-rs list` shows the probe, and `probe-rs info --chip
-   STM32WLE5JCIx` reads the Wio-E5 (RM0461 gives DPIDR 0x5BA02477),
-   read-protected or not. It ships at RDP 1: check FLASH_OPTR, clear it
-   with `mise run unlock`, then power-cycle the board so the option bytes
-   load (notes/build-flash.md, Read protection).
+   STM32WLE5JCIx` reads the Wio-E5 (RM0461 gives DPIDR 0x5BA02477; the
+   first board read 0x6BA02477), read-protected or not. It ships at
+   RDP 1: `mise run unlock-check` reports the level; clear it with `mise
+   run unlock`, power-cycle the board so the option bytes load, and run
+   the check again (notes/build-flash.md, Read protection).
 2. `mise run bootloader`, `ADDRESS=2 mise run flash --features board`,
    and RTT via `mise run attach`.
 3. Serial: the basestation built with `board`, `mise run data-relay -p

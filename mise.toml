@@ -33,5 +33,13 @@ description = "Relay mesh data from the basestation as JSON lines (args: -p PORT
 run = "python3 basestation/host/data_relay.py"
 
 [tasks.unlock]
-description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe; hold NRST low as notes/build-flash.md describes"
+description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe (erases flash); power-cycle the board afterwards, then mise run unlock-check"
 run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"'
+
+[tasks.unlock-check]
+description = "Report the STM32WLE5's read protection level through probe-rs, and whether an unlock still awaits a power cycle; exits 0 only when unlocked"
+run = "bash scripts/unlock-check.sh"
+
+[tasks.test-scripts]
+description = "Test the host scripts in scripts/ without hardware"
+run = "bash scripts/unlock-check-test.sh"

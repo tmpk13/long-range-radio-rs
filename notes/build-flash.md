@@ -156,7 +156,8 @@ FLASH_OPTR keeps 0xBB until the option bytes are loaded, at power-on or
 OBL_LAUNCH. OpenOCD's closing `reset halt` is a system reset, which does
 not load them, and `stm32l4x unlock` reports nothing either way. Power
 cycle the board after the unlock; the regression erase happens at that
-load. Through the CH572D bridge the unlock connected without holding
+load. `mise run unlock-check` reads both words and names the state,
+including an unlock still waiting for the power cycle. Through the CH572D bridge the unlock connected without holding
 NRST: OpenOCD cleared the lockup itself.
 
 ---
