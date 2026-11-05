@@ -181,11 +181,14 @@ fn write_state(state: u32, progress: u32) {
 ///   3. Copy scratch    -> DFU[i]
 ///   4. Update progress to i+1
 ///
-/// Not fully power-fail-safe.  A resume restarts page i at step 1, so a cut
-/// during step 2 or 3 loses the scratch copy of the old page (and a cut in
-/// step 3 also puts a half-written page into ACTIVE).  A cut while
-/// `write_state` has the state page erased boots the half-swapped image, as
-/// an erased state reads like `BOOT_OK`.
+/// Not power-fail-safe, though it records progress after each page.  A cut
+/// during any erase or program leaves that flash undefined (RM0461 3.3.6),
+/// and a resume restarts page i at step 1: a cut in step 2 or 3 loses the
+/// scratch copy of the old page, and reading the half-written page can
+/// raise an ECC double-error NMI (RM0461 3.3.3), which this bootloader does
+/// not handle, so it hangs.  A cut in `write_state` can leave the state page
+/// erased (the half-swapped image boots as if confirmed), stale (the resume
+/// redoes, and so undoes, a finished page) or unreadable (the same hang).
 fn swap_partitions(start_page: u32) {
     for i in start_page..ACTIVE_PAGES {
         let active_addr = ACTIVE_BASE + i * PAGE_SIZE;

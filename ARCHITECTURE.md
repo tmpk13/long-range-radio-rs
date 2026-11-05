@@ -121,8 +121,8 @@ resolved in probe order (notes/sensors.md, the SEN0575 section).
 
 The bootloader reads the boot-state word on every boot, acts on it, then
 jumps to the active slot. A swap or revert records its page progress so
-that it can resume after a power loss, though two windows still break that
-(notes/boot-ota.md, "The swap is not power-fail-safe").
+that it can resume after a power loss, though a cut at the wrong moment
+still breaks it (notes/boot-ota.md, "The swap is not power-fail-safe").
 
 ```mermaid
 stateDiagram-v2

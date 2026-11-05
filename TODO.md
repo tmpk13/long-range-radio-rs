@@ -1,4 +1,4 @@
 - [ ] Separate radio logic from main
-- [ ] Make sure the OTA updates will not be affected by interruptions: a power loss in the bootloader's swap can boot a half-swapped image or lose a page (notes/boot-ota.md, "The swap is not power-fail-safe")
+- [ ] Make sure the OTA updates will not be affected by interruptions: a power loss in the bootloader's swap can boot a half-swapped image, lose a page, or hang every boot (notes/boot-ota.md, "The swap is not power-fail-safe")
 - [ ] Confirm a new image's boot only once it is up (radio, main loop): `confirm_boot` runs at the top of `init` (notes/boot-ota.md, "Known gaps")
 - [ ] Reboot the node after a completed OTA transfer, once `OTA_COMPLETE` is on the air: the swap waits for the next reset (notes/boot-ota.md, "Known gaps")

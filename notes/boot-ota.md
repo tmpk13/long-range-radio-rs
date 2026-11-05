@@ -163,22 +163,36 @@ Two things the update scheme relies on are missing (TODO.md):
 ## The swap is not power-fail-safe
 
 The bootloader records its progress after each page so that a power loss
-mid-swap resumes at the interrupted page, but two windows still break an
-update (TODO.md):
+mid-swap resumes at the interrupted page. But a cut during almost any step
+after a page's first copy, until its progress record is durable, damages a
+slot or wedges the boot (TODO.md). Two facts from RM0461 (Rev 11) widen the
+obvious cases: flash that was being erased or programmed when a reset hit
+is undefined (3.3.6), and reading a double-word with a two-bit ECC error
+raises an NMI (3.3.3; erased double-words never do). The bootloader has no
+NMI handler, so cortex-m-rt's default spins forever.
 
-- `write_state` erases the boot-state page, then programs it. A power loss
-  between the two leaves the page erased, which the bootloader treats as
-  `BOOT_OK`: it boots the half-swapped active slot, and so does every later
-  boot. A swap opens that window 57 times (after each of the 56 pages, then
-  for `SWAP_COMPLETE`), a revert 57 times too, for the length of a page
-  erase each (roughly 20-25 ms).
-- A resume restarts the interrupted page at its first copy (active to
+- The state record. `write_state` erases the boot-state page, then
+  programs it: 57 times per swap (after each of the 56 pages, then for
+  `SWAP_COMPLETE`) and 57 per revert, roughly 20-25 ms each. A cut there
+  can leave the page erased, which reads like `BOOT_OK` and boots the
+  half-swapped slot on every boot from then on; or holding the old record,
+  so the resume redoes a finished page, which swaps it back and leaves each
+  slot with the other image's page; or unreadable, so `read_state` hits
+  the NMI and every boot hangs, power cycles included.
+- The page copies. A resume restarts the page at its first copy (active to
   scratch), which overwrites the scratch page, the only copy of the old
   page. After a cut in the second copy (DFU to active), the new image comes
   out right but the revert image left in the DFU slot carries one wrong
-  page. After a cut in the third copy (scratch to DFU), the resume also
-  copies the half-written DFU page into the active slot: the new image gets
-  one wrong page, and the old page is gone from both slots.
+  page, unless reading the half-written active page hits the NMI first.
+  After a cut in the third copy (scratch to DFU), the resume copies the
+  half-written DFU page into the active slot, or hangs on the NMI reading
+  it: the new image gets one wrong page, and the old page is gone from
+  both slots.
+
+A fix needs progress recorded per step, so that a resume never reads a
+page that may be half-written; state records appended rather than erased
+in place; and an NMI handler that treats an ECC double error on the state
+page as an invalid record instead of spinning.
 
 ## OTA timing
 
