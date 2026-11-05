@@ -128,7 +128,8 @@ RB_UIF_TRANSFER is cleared. Handling follows WCH's CH572 COM example:
 - Flashing is over USB through the ROM bootloader with wchisp. CH570/CH572
   support is only on wchisp's main branch (added 2025-12, after 0.3.0), so
   mise.toml pins a commit. The board review says a blank chip enumerates
-  on its own; the first board's did not, so use the PA1 pull-up below. wlink
+  on its own; no WCH document says so, and the first board could not tell
+  (its crystal was shorted). Use the PA1 pull-up below. wlink
   0.1.3 (WCH-LinkE) also supports the CH572 over its 2-wire debug pins,
   which are PA0/PA1, the USB lines, and which the firmware turns off when
   it attaches to USB.
@@ -147,8 +148,10 @@ The board has no BOOT button for the CH572D (review M3), so:
    restarts the bridge, and `lsusb` shows 1209:0001 again instead of the
    WCH ISP device.
 2. PA1 (D+) pulled up to VCC before power is applied (WCH's CH572
-   evaluation board manual, section 4.3, in EVT/PUB of the repo above). On
-   this board: 5.1k from R41's VDD33 end to D+, then plug in. Against the
+   evaluation board manual, section 4.3, in EVT/PUB of the repo above).
+   The EVB's Download button is VCC - 5.1k - PA1, with PA1 wired straight
+   to the USB-C D+ pins (EVT/PUB/CH572SCH.pdf). On this board the same:
+   5.1k from R41's VDD33 end to D+, then plug in. Against the
    host's 15k pull-down D+ reads about 2.5 V; about 3.0 V if the
    bootloader also turns on its internal 1.5k pull-up, which no WCH
    document says it does. Do not use +5V:
@@ -172,6 +175,8 @@ fixed (pad 21 is on GND):
   it through its pins.
 - M5: U7 can put the boost onto VBUS. The firmware holds USB_VOUT_EN (PA4)
   low and never sets it.
+- Pin 4 is NC in the datasheet but VDDK in WCH's EVB schematic, which
+  leaves it open, as V1 does.
 - Not in the review: the buck-forest XRCGB32M000F1S1DR0 footprint (Y2,
   also on CH572D-Module) is Murata's bottom view drawn as the top view.
   The crystal terminals are one diagonal; the other two pads are joined
