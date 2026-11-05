@@ -4,6 +4,7 @@ name         = "flash-layout"
 rust-version = "1.88"
 version      = "0.1.0"
 
-# No dependencies: the bootloader uses this crate too, and it must not pull
-# in the HAL (see the workspace manifest on cortex-m-rt's features).
+# No dependencies: the bootloader uses this crate too, and the HAL would
+# bring it cortex-m-rt's `device` feature, which needs a device.x that the
+# bootloader does not have, so its link would fail.
 [dependencies]
