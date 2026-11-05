@@ -7,12 +7,12 @@ The current board: KiCad project
 (main, buck and USB sheets). Wio-E5 pin use is in ARCHITECTURE.md (Pin
 allocation), the CH572D's in ch572-bridge-rs
 [src/hw.rs](https://github.com/tmpk13/ch572-bridge-rs/blob/main/src/hw.rs),
-and the board support in `notes/board.md`. Testing a board:
+and the board support in [notes/board.md](../notes/board.md). Testing a board:
 [v1-board-test.md](v1-board-test.md).
 
 ## First prototype board using Seeed Wio-E5
 
-![alt text](../prototype.jpg)
+![The first prototype board](prototype.jpg)
 
 ## Wio-E5 pinout
 
@@ -47,4 +47,4 @@ and the board support in `notes/board.md`. Testing a board:
 | 27  | PA10 | I/O  | SPI2_MOSI from MCU |
 | 28  | PB0  | I/O  | Unavailable; suspended treatment |
 
-![wio-e5-pinout](../wio-e5-pinout.png)
+![Wio-E5 pinout](wio-e5-pinout.png)

@@ -1,0 +1,3 @@
+- `SendingQueueIsFull` after about 18 minutes: the DWT `millis()` wrap, fixed in `firmware/src/platform.rs` (notes/mesh.md)
+- Basestation OTA node with a UART link and progress bars for firmware updates, talking to the daemon: `basestation/` and its host tools in `basestation/host/`
+- RX boost: the `RX_BOOST` build setting (`firmware/src/config.rs`)

@@ -93,19 +93,20 @@ path constructs them on the stack before moving to statics.
 
 ## Basestation Node - UART Pin Selection
 
-The basestation uses a single UART (USART1) for all host communication via an
-RS232 TTL 3.3V FTDI adapter. OTA and data relay commands are multiplexed on the
-same link - the frame protocol has distinct command ranges (0x01-0x0F for OTA,
-0x10-0x1F for data relay) so no second UART is needed.
+The basestation uses a single UART for all host communication. OTA and data
+relay commands are multiplexed on the same link - the frame protocol
+(`basestation/src/uart_proto.rs`) has distinct command ranges (0x01-0x0F for
+OTA, 0x10-0x1F for data relay) so no second UART is needed.
 
-- **USART1** (PB6 TX, PB7 RX) - pins 10/9 on the Wio-E5 module
+- **USART1** (PB6 TX, PB7 RX, pads 10/9) through an RS232 TTL 3.3V FTDI
+  adapter, by default.
+- **USART2** (PA2 TX, PA3 RX, pads 19/18) with the `board` feature: on the
+  Forest Sensor Platform USART1 belongs to the RS-485 transceiver, and USART2
+  runs to the CH572D, which bridges it to USB-C.
 
 HSI16 (16 MHz) clock source at 115200 baud. The HAL enables HSI16 automatically
 when `uart::Clk::Hsi16` is specified - it runs independently of the MSI system
 clock.
-
-UART frame protocol: `[0xAA sync] [len_lo] [len_hi] [cmd] [payload] [crc8]`
-CRC-8/ITU (poly 0x07) over cmd + payload bytes.
 
 ## OTA Chunk Null-Byte Truncation (Protocol Change)
 
@@ -133,3 +134,37 @@ Fix (two parts):
 
 **This is a protocol-breaking change** - nodes with old firmware cannot
 exchange OTA chunks with nodes running the new format.
+
+## Known gaps: an early boot confirm, and no reboot after a transfer
+
+Two things the update scheme relies on are missing (TODO.md):
+
+- `confirm_boot` runs at the top of `init`, right after `watchdog::start` and
+  before the GPIO, the radio and the main loop. A new image that hangs or
+  panics after that point is already confirmed: the watchdog resets it, the
+  bootloader sees `BOOT_OK` and boots it again, and the node loops instead of
+  reverting. Only a failure in the first lines of `init` takes the revert
+  path (`SWAP_COMPLETE` at boot).
+- After a verified transfer the node writes `SWAP_PENDING`, sends
+  `OTA_COMPLETE` and carries on running the old image; nothing resets it. The
+  swap waits for the next reset of any kind (power cycle, watchdog, probe).
+  Until then the node runs, and answers offers as, the old version, so a
+  repeat upload of the same version is accepted rather than refused, and
+  `ota_upload.py`'s "Target node will reboot." overstates what happens.
+
+## OTA timing
+
+Estimates, not measurements; docs/v1-board-test.md step 10 records a real
+transfer time.
+
+- Mesh transfer: stop-and-wait, one 27-byte chunk per round trip. An earlier
+  estimate put a round trip at about 0.75 s at the default `fast` preset
+  (SF7/BW125), so a 48 KB image (1,788 chunks) takes about 22 minutes and a
+  full 112 KB slot (4,248 chunks) about 53. Airtime grows roughly as 2^SF, so
+  the slower presets take several times longer.
+- Upload to the basestation: 128-byte `FW_DATA` frames at 115200 baud, each
+  acknowledged, about 10 s for 48 KB.
+- Bootloader swap: 56 pages, each copied three times (active to scratch, DFU
+  to active, scratch to DFU) with a boot-state write after it, so 224 page
+  erases of roughly 20-25 ms plus 168 pages programmed: about 8 s, during
+  which the node runs nothing. A power loss resumes from the progress word.

@@ -274,7 +274,8 @@ serial port; the second node (ADDRESS=3) runs the node firmware.
 This needs the second node as the basestation: `ADDRESS=10 mise run
 basestation` on it (add `--features board` if it is a V1 board), on
 PORT (`/dev/ttyUSB0` through a USB-UART, `/dev/ttyACM0` through a
-CH572D). The update scheme is in [UPDATE.md](../UPDATE.md).
+CH572D). The update scheme is in
+[ARCHITECTURE.md](../ARCHITECTURE.md#over-the-air-update).
 
 - [ ] The board runs `ADDRESS=2 mise run flash --features board`, which
   is version 1
@@ -283,6 +284,8 @@ CH572D). The update scheme is in [UPDATE.md](../UPDATE.md).
 - [ ] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
   with `OTA transfer successful! Target node will reboot.`: took
   ____ min
+- [ ] Power-cycle the board: the node swaps the image in at its next
+  reset, not at the end of the transfer ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer))
 - [ ] `mise run data-relay -p PORT` shows the board's heartbeats again
 - [ ] The same upload again ends with
   `OTA transfer finished with result: 0x02`: the board refuses
@@ -334,8 +337,10 @@ This needs an NMEA GPS talking RS-485 into J7, and a microSD card
 ## Not covered
 
 - OTA rollback, where a new image never confirms its boot and the
-  bootloader restores the old one ([UPDATE.md](../UPDATE.md)): it needs
-  a deliberately broken image.
+  bootloader restores the old one
+  ([ARCHITECTURE.md](../ARCHITECTURE.md#boot-state)): it needs a
+  deliberately broken image, and only one that dies in the first lines
+  of `init` is reverted today ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer)).
 - The CH572D's 2.4 GHz radio on J9: the bridge firmware does not use it.
 - Pulling the pack while charging (rule 2).
 

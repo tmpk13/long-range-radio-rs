@@ -1,7 +1,23 @@
 //! OTA firmware-update protocol message types and serialization.
 //!
 //! All messages fit within a 32-byte `embedded-nano-mesh` payload.
-//! The first byte is the message type; remaining bytes are the payload.
+//! The first byte is the message type; remaining bytes are the payload,
+//! little-endian.  The sender is the basestation ([`crate::ota_sender`]),
+//! the target a node ([`crate::ota`]):
+//!
+//! | ID     | Message         | Direction        | Payload                                                   |
+//! |--------|-----------------|------------------|-----------------------------------------------------------|
+//! | `0xF0` | `OTA_OFFER`     | sender -> target | `firmware_size: u32, total_chunks: u16, crc32: u32, version: u16` |
+//! | `0xF1` | `OTA_ACCEPT`    | target -> sender | none                                                      |
+//! | `0xF2` | `OTA_REJECT`    | target -> sender | `reason: u8` ([`reason`])                                 |
+//! | `0xF3` | `OTA_CHUNK`     | sender -> target | `index: u16, data_len: u8, data: [u8; data_len]`          |
+//! | `0xF4` | `OTA_CHUNK_ACK` | target -> sender | `chunk_index: u16, next_needed: u16`                      |
+//! | `0xF5` | `OTA_ABORT`     | either           | `reason: u8` ([`reason`])                                 |
+//! | `0xF6` | `OTA_COMPLETE`  | target -> sender | `crc32: u32` of the image now staged in the DFU slot      |
+//!
+//! A chunk carries at most [`CHUNK_DATA_SIZE`] bytes.  `data_len` travels
+//! explicitly because the mesh layer pads every payload to 32 bytes with
+//! zeros, so a chunk's length cannot be read off the message size.
 
 /// Message type IDs (first byte of mesh payload).
 pub mod msg {
@@ -65,7 +81,8 @@ impl OtaOffer {
 
 // -- Chunk -------------------------------------------------------------------
 
-/// A single firmware chunk: index + up to 28 bytes of data.
+/// A single firmware chunk: index, length and up to [`CHUNK_DATA_SIZE`]
+/// bytes of data.
 #[derive(Debug, Clone)]
 pub struct OtaChunk {
     pub index: u16,

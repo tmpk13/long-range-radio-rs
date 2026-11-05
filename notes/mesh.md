@@ -41,7 +41,7 @@ returns `false` permanently and the transmit queue stops draining.  With
 
 Fix: use `wrapping_sub` on successive DWT readings and accumulate elapsed
 ms, so `millis()` returns a monotonically-increasing u32 that wraps only
-at ~49 days.  This lives in `sx1262-mesh-rs/src/platform.rs`.
+at ~49 days.  This lives in `firmware/src/platform.rs`.
 
 ## Broadcast Collision Risk
 
