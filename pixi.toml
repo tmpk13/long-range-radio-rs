@@ -1,0 +1,13 @@
+# Python environment for the basestation host tools (basestation/host/).
+# mise pins pixi; the mise tasks run the tools with `pixi run`.
+[workspace]
+authors = ["tmpk13 <167717442+tmpk13@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "long-range-radio-rs"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[dependencies]
+python = ">=3.15.2,<3.16"
+pyserial = ">=3.5,<4"
+tqdm = ">=4.70.1,<5"

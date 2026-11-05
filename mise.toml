@@ -1,11 +1,48 @@
+# Every task runs from the repository root.  Arguments after the task name
+# are appended to its command, e.g. `mise run flash --features board`.
+#
+# The Rust toolchain comes from rust-toolchain.toml through rustup; probe-rs
+# and OpenOCD are the machine's own installs.
+
+[tools]
+# Python and the basestation host tools' packages come from pixi.toml.
+pixi = "0.66.0"
+
 [tasks.build]
-description = "Build the app, bootloader and basestation (release) without flashing"
-# One cargo call per package: a single --workspace build unifies cortex-m-rt
-# features across members and the bootloader then fails to link (no device.x).
+description = "Build the node firmware, bootloader and basestation (release) without flashing"
+# One cargo call per package: building several members at once unifies
+# cortex-m-rt's features, and the bootloader then fails to link (no device.x).
 run = [
     "cargo build --release -p sx1262-mesh-rs",
     "cargo build --release -p bootloader",
     "cargo build --release -p basestation",
+]
+
+[tasks.check]
+description = "Build every node feature set, the bootloader and both basestation variants into target/check, to catch feature-gated breakage"
+# Its own target directory keeps target/thumbv7em-none-eabi/release/ holding
+# the images last built for flashing, which `mise run attach` reads.
+env = { CARGO_TARGET_DIR = "target/check" }
+run = [
+    "cargo build --release -q -p sx1262-mesh-rs",
+    "cargo build --release -q -p sx1262-mesh-rs --features debug",
+    "cargo build --release -q -p sx1262-mesh-rs --features board",
+    "cargo build --release -q -p sx1262-mesh-rs --features sensor",
+    "cargo build --release -q -p sx1262-mesh-rs --features rs422",
+    "cargo build --release -q -p sx1262-mesh-rs --features gps-radio-log",
+    "cargo build --release -q -p sx1262-mesh-rs --features board,sensor,rs422,debug",
+    "cargo build --release -q -p sx1262-mesh-rs --features board,sensor,gps-radio-log",
+    "cargo build --release -q -p bootloader",
+    "cargo build --release -q -p basestation",
+    "cargo build --release -q -p basestation --features board",
+]
+
+[tasks.test]
+description = "Run the host-side tests, no hardware needed: flash-layout's partition map and the unlock-check verdicts"
+# The root .cargo/config.toml targets the MCU, so host tests name the host.
+run = [
+    'cargo test -q -p flash-layout --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
+    "bash scripts/unlock-check-test.sh",
 ]
 
 [tasks.bootloader]
@@ -30,11 +67,11 @@ run = "bash scripts/ota-image.sh"
 
 [tasks.ota-upload]
 description = "Upload a firmware image to a node through the basestation (args: -p PORT -t TARGET -v VERSION FILE)"
-run = "python3 basestation/host/ota_upload.py"
+run = "pixi run python basestation/host/ota_upload.py"
 
 [tasks.data-relay]
 description = "Relay mesh data from the basestation as JSON lines (args: -p PORT)"
-run = "python3 basestation/host/data_relay.py"
+run = "pixi run python basestation/host/data_relay.py"
 
 [tasks.unlock]
 description = "Clear STM32WLE5 read protection with OpenOCD over a CMSIS-DAP probe (erases flash); power-cycle the board afterwards, then mise run unlock-check"
@@ -43,11 +80,3 @@ run = 'openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset
 [tasks.unlock-check]
 description = "Report the STM32WLE5's read protection level through probe-rs, and whether an unlock still awaits a power cycle; exits 0 only when unlocked"
 run = "bash scripts/unlock-check.sh"
-
-[tasks.test]
-description = "Run the host-side tests, no hardware needed: flash-layout's partition map and the unlock-check verdicts"
-# The root .cargo/config.toml targets the MCU, so host tests name the host.
-run = [
-    'cargo test -q -p flash-layout --lib --target "$(rustc -vV | sed -n "s/^host: //p")"',
-    "bash scripts/unlock-check-test.sh",
-]

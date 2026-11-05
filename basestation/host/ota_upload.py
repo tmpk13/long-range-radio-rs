@@ -2,8 +2,8 @@
 """
 Upload firmware to a mesh node via the basestation.
 
-Usage:
-    python ota_upload.py --port /dev/ttyUSB0 --target 2 --version 3 firmware.bin
+Usage, from the repository root (mise runs it in the pixi environment):
+    mise run ota-upload -p /dev/ttyUSB0 -t 2 -v 3 target/firmware.bin
 
 The tool:
   1. Sends the firmware binary to the basestation over UART
@@ -20,6 +20,7 @@ import sys
 import time
 import zlib
 
+import serial
 from tqdm import tqdm
 
 from basestation_proto import (
@@ -164,6 +165,7 @@ def main():
         sys.exit(1)
 
     # Connect and upload
+    bs = None
     try:
         bs = Basestation(args.port, args.baud)
         upload_firmware(bs, fw_data, args.target, args.version)
@@ -174,11 +176,9 @@ def main():
         print(f"Serial error: {e}", file=sys.stderr)
         sys.exit(1)
     finally:
-        if "bs" in dir():
+        if bs is not None:
             bs.close()
 
 
 if __name__ == "__main__":
-    import serial
-
     main()

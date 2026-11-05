@@ -3,11 +3,11 @@
 Relay mesh data between the basestation and stdout/stdin.
 
 This acts as a compatibility layer for the daemon - it reads mesh
-messages from the basestation's data UART and prints them as JSON
+messages from the basestation's UART link and prints them as JSON
 lines to stdout.  Messages from stdin are sent to the mesh.
 
-Usage:
-    python data_relay.py --port /dev/ttyUSB1
+Usage, from the repository root (mise runs it in the pixi environment):
+    mise run data-relay -p /dev/ttyACM0
 
 Input format (stdin, one JSON per line):
     {"dest": 2, "data": "aGVsbG8="}       # base64-encoded, to specific node
