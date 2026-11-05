@@ -47,8 +47,11 @@ Fix (three layers):
 0x08000400 is the bootloader's `Reset` handler. probe-rs arms reset
 vector catch, so a chip reset (watchdog, reset button, software reset)
 halts the core on the bootloader's first instruction. Seen on the first
-FSP board on 2026-11-05. The cause of that reset was not found: three
-later resets over SWD all booted cleanly.
+FSP board on 2026-11-05, after a reset-button press following
+`ADDRESS=2 mise run flash --features sensor`. The same image later booted
+cleanly after a power cycle and three SWD resets, so the build was not the
+cause. Whether the button reset met a catch left armed by the flash
+session's `probe-rs run`, or a real reset happened, was not determined.
 
 probe-rs leaves the core halted with the catch still armed (DEMCR read
 0x01000401). Only a power cycle clears DEMCR, so until then the reset
