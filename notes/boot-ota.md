@@ -139,18 +139,46 @@ exchange OTA chunks with nodes running the new format.
 
 Two things the update scheme relies on are missing (TODO.md):
 
-- `confirm_boot` runs at the top of `init`, right after `watchdog::start` and
-  before the GPIO, the radio and the main loop. A new image that hangs or
-  panics after that point is already confirmed: the watchdog resets it, the
-  bootloader sees `BOOT_OK` and boots it again, and the node loops instead of
-  reverting. Only a failure in the first lines of `init` takes the revert
-  path (`SWAP_COMPLETE` at boot).
+- `confirm_boot` runs near the top of `init`, just after `watchdog::start`
+  and before the GPIO, the radio and the main loop. A new image that hangs
+  or panics after it is already confirmed: the watchdog resets it, the
+  bootloader sees `BOOT_OK` and boots it again, and the node loops instead
+  of reverting. One that dies before `watchdog::start` is not reset at all:
+  the bootloader never starts the IWDG, and the option bytes select the
+  software watchdog (`IWDG_SW` is set in FLASH_OPTR, 0x3FFFF0AA on these
+  boards; build-flash.md, Read protection). It spins in `panic_halt` or the
+  HardFault loop until a reset by hand (SW1, power) takes the revert path
+  (`SWAP_COMPLETE` at boot). Only a failure between `watchdog::start` and
+  `confirm_boot` reverts on its own.
 - After a verified transfer the node writes `SWAP_PENDING`, sends
   `OTA_COMPLETE` and carries on running the old image; nothing resets it. The
   swap waits for the next reset of any kind (power cycle, watchdog, probe).
   Until then the node runs, and answers offers as, the old version, so a
-  repeat upload of the same version is accepted rather than refused, and
+  repeat upload of the same version is accepted rather than refused. If
+  that second transfer is abandoned midway, the DFU slot holds a mix of
+  both images while `SWAP_PENDING` is still set, and the next reset swaps
+  the mix in: the bootloader does not check the image it swaps.
   `ota_upload.py`'s "Target node will reboot." overstates what happens.
+
+## The swap is not power-fail-safe
+
+The bootloader records its progress after each page so that a power loss
+mid-swap resumes at the interrupted page, but two windows still break an
+update (TODO.md):
+
+- `write_state` erases the boot-state page, then programs it. A power loss
+  between the two leaves the page erased, which the bootloader treats as
+  `BOOT_OK`: it boots the half-swapped active slot, and so does every later
+  boot. A swap opens that window 57 times (after each of the 56 pages, then
+  for `SWAP_COMPLETE`), a revert 57 times too, for the length of a page
+  erase each (roughly 20-25 ms).
+- A resume restarts the interrupted page at its first copy (active to
+  scratch), which overwrites the scratch page, the only copy of the old
+  page. After a cut in the second copy (DFU to active), the new image comes
+  out right but the revert image left in the DFU slot carries one wrong
+  page. After a cut in the third copy (scratch to DFU), the resume also
+  copies the half-written DFU page into the active slot: the new image gets
+  one wrong page, and the old page is gone from both slots.
 
 ## OTA timing
 
@@ -167,4 +195,5 @@ transfer time.
 - Bootloader swap: 56 pages, each copied three times (active to scratch, DFU
   to active, scratch to DFU) with a boot-state write after it, so 224 page
   erases of roughly 20-25 ms plus 168 pages programmed: about 8 s, during
-  which the node runs nothing. A power loss resumes from the progress word.
+  which the node runs nothing. A power loss resumes from the progress word,
+  except in the windows above.

@@ -339,8 +339,8 @@ This needs an NMEA GPS talking RS-485 into J7, and a microSD card
 - OTA rollback, where a new image never confirms its boot and the
   bootloader restores the old one
   ([ARCHITECTURE.md](../ARCHITECTURE.md#boot-state)): it needs a
-  deliberately broken image, and only one that dies in the first lines
-  of `init` is reverted today ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer)).
+  deliberately broken image, and today only one that dies between
+  `watchdog::start` and `confirm_boot` in `init` reverts on its own ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer)).
 - The CH572D's 2.4 GHz radio on J9: the bridge firmware does not use it.
 - Pulling the pack while charging (rule 2).
 

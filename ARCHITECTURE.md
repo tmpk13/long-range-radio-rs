@@ -120,8 +120,9 @@ resolved in probe order (notes/sensors.md, the SEN0575 section).
 ## Boot state
 
 The bootloader reads the boot-state word on every boot, acts on it, then
-jumps to the active slot. A swap or revert records its page progress, so
-either resumes after a power loss.
+jumps to the active slot. A swap or revert records its page progress so
+that it can resume after a power loss, though two windows still break that
+(notes/boot-ota.md, "The swap is not power-fail-safe").
 
 ```mermaid
 stateDiagram-v2
@@ -134,9 +135,9 @@ stateDiagram-v2
     REVERT_PENDING --> BOOT_OK : bootloader restored the old image
 ```
 
-`confirm_boot` runs at the top of `init`, right after the watchdog starts
-and before the radio comes up, so only a new app that dies that early is
-reverted (notes/boot-ota.md, "Known gaps").
+`confirm_boot` runs just after `init` starts the watchdog and before the
+radio comes up, so only a new app that dies in between reverts on its own
+(notes/boot-ota.md, "Known gaps").
 
 ## Over-the-air update
 

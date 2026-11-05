@@ -173,13 +173,19 @@ fn write_state(state: u32, progress: u32) {
 
 // -- Swap logic --------------------------------------------------------------
 
-/// Perform a power-fail-safe swap of ACTIVE <-> DFU.
+/// Swap ACTIVE <-> DFU page by page, resuming after a power loss.
 ///
 /// For each page i (starting from `start_page`):
 ///   1. Copy ACTIVE[i] -> scratch
 ///   2. Copy DFU[i]    -> ACTIVE[i]
 ///   3. Copy scratch    -> DFU[i]
 ///   4. Update progress to i+1
+///
+/// Not fully power-fail-safe.  A resume restarts page i at step 1, so a cut
+/// during step 2 or 3 loses the scratch copy of the old page (and a cut in
+/// step 3 also puts a half-written page into ACTIVE).  A cut while
+/// `write_state` has the state page erased boots the half-swapped image, as
+/// an erased state reads like `BOOT_OK`.
 fn swap_partitions(start_page: u32) {
     for i in start_page..ACTIVE_PAGES {
         let active_addr = ACTIVE_BASE + i * PAGE_SIZE;

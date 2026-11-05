@@ -103,8 +103,8 @@ pub mod boot_state {
     pub const REVERT_PENDING: u32 = 0x5245_5654;
 
     /// Address of the progress word: the next page index the bootloader
-    /// swaps or reverts, so either survives a power loss.  Erased flash
-    /// (`0xFFFF_FFFF`) means page 0.
+    /// swaps or reverts, recorded after each page so that it can pick up
+    /// there after a power loss.  Erased flash (`0xFFFF_FFFF`) means page 0.
     pub const PROGRESS_ADDR: u32 = STATE_ADDR + 4;
 }
 
