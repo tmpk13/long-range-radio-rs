@@ -179,8 +179,8 @@ fixed (pad 21 is on GND):
   diagonal, so XI-XO is a short and the crystal sits across GND. Check:
   XI to XO reads open, unpowered. Rework: turn the crystal 90 degrees;
   the recommended land pattern still overlaps each terminal by about
-  70%. Library fix: pads 1 and 3 at (-0.675, 0.5) and (0.675, -0.5),
-  then reroute XI/XO.
+  70%. The library is fixed (Forest-Sensor-Platform b402d0c); each board
+  still needs its Y2 updated from the library and XI/XO rerouted.
 
 ## First bring-up
 
