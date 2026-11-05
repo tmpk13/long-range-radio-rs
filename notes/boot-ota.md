@@ -135,64 +135,80 @@ Fix (two parts):
 **This is a protocol-breaking change** - nodes with old firmware cannot
 exchange OTA chunks with nodes running the new format.
 
-## Known gaps: an early boot confirm, and no reboot after a transfer
+## The boot-state log and the swap
 
-Two things the update scheme relies on are missing (TODO.md):
+The first bootloader kept one state word and a page counter on the state
+page, erasing the page for every update. A power cut was fatal in three
+ways. An erased page read as "nothing pending", so a cut between the erase
+and the write booted a half-swapped slot on every boot. A resume restarted
+a page at its first copy, overwriting the only saved copy of the old page.
+And a write the cut left undefined (RM0461 3.3.6) could carry a two-bit
+ECC error, whose NMI (RM0461 3.3.3) hung every boot in cortex-m-rt's
+default handler. The replacement, `flash_layout::boot`, is built around
+those facts:
 
-- `confirm_boot` runs near the top of `init`, just after `watchdog::start`
-  and before the GPIO, the radio and the main loop. A new image that hangs
-  or panics after it is already confirmed: the watchdog resets it, the
-  bootloader sees `BOOT_OK` and boots it again, and the node loops instead
-  of reverting. One that dies before `watchdog::start` is not reset at all:
-  the bootloader never starts the IWDG, and the option bytes select the
-  software watchdog (`IWDG_SW` is set in FLASH_OPTR, 0x3FFFF0AA on these
-  boards; build-flash.md, Read protection). It spins in `panic_halt` or the
-  HardFault loop until a reset by hand (SW1, power) takes the revert path
-  (`SWAP_COMPLETE` at boot). Only a failure between `watchdog::start` and
-  `confirm_boot` reverts on its own.
-- After a verified transfer the node writes `SWAP_PENDING`, sends
-  `OTA_COMPLETE` and carries on running the old image; nothing resets it. The
-  swap waits for the next reset of any kind (power cycle, watchdog, probe).
-  Until then the node runs, and answers offers as, the old version, so a
-  repeat upload of the same version is accepted rather than refused. If
-  that second transfer is abandoned midway, the DFU slot holds a mix of
-  both images while `SWAP_PENDING` is still set, and the next reset swaps
-  the mix in: the bootloader does not check the image it swaps.
-  `ota_upload.py`'s "Target node will reboot." overstates what happens.
+- The state is an append-only log, one 8-byte record per double-word with
+  a 16-bit check. Only the app's swap request erases the page, while
+  nothing is pending, so a cut there just loses the request. Every other
+  change appends, and a torn record fails its check and is skipped.
+- A swap is 168 steps, three page copies per page, each followed by its
+  record. A resume runs exactly the next step, whose source no step has
+  touched yet, so it never reads a page that may be half-written. Every
+  step can run twice without harm.
+- The bootloader and the app both install an NMI handler that turns an
+  uncorrectable ECC error into an unreadable double-word. The scan skips
+  it; the bootloader's CRC check refuses an image containing one.
+- Before the first copy the bootloader checks the staged image's size,
+  vector table and CRC-32 against the request. A bad image gets a
+  `Refused` record and the running one stays.
 
-## The swap is not power-fail-safe
+`flash-layout/src/boot/tests.rs` cuts the power at every erase and program
+of a swap, a revert, a request and a confirm. It cuts once and then twice,
+leaving the interrupted double-word or page untouched, finished, half-done
+or unreadable each time, in a three-page geometry. It also cuts at a
+hundred points across a full-size swap. Both of the first bootloader's
+resume bugs, put back, fail those tests.
 
-The bootloader records its progress after each page so that a power loss
-mid-swap resumes at the interrupted page. But a cut during almost any step
-after a page's first copy, until its progress record is durable, damages a
-slot or wedges the boot (TODO.md). Two facts from RM0461 (Rev 11) widen the
-obvious cases: flash that was being erased or programmed when a reset hit
-is undefined (3.3.6), and reading a double-word with a two-bit ECC error
-raises an NMI (3.3.3; erased double-words never do). The bootloader has no
-NMI handler, so cortex-m-rt's default spins forever.
+Two windows remain. The log page holds 256 records and a swap plus a
+revert uses 229. Only more than two dozen failed writes in one update
+fill it, and the fallback then erases the page and keeps only the current
+record, which reopens the erase window once. A cut after the swap's last
+record but before the jump reverts an update that never ran; send it
+again.
 
-- The state record. `write_state` erases the boot-state page, then
-  programs it: 57 times per swap (after each of the 56 pages, then for
-  `SWAP_COMPLETE`) and 57 per revert, roughly 20-25 ms each. A cut there
-  can leave the page erased, which reads like `BOOT_OK` and boots the
-  half-swapped slot on every boot from then on; or holding the old record,
-  so the resume redoes a finished page, which swaps it back and leaves each
-  slot with the other image's page; or unreadable, so `read_state` hits
-  the NMI and every boot hangs, power cycles included.
-- The page copies. A resume restarts the page at its first copy (active to
-  scratch), which overwrites the scratch page, the only copy of the old
-  page. After a cut in the second copy (DFU to active), the new image comes
-  out right but the revert image left in the DFU slot carries one wrong
-  page, unless reading the half-written active page hits the NMI first.
-  After a cut in the third copy (scratch to DFU), the resume copies the
-  half-written DFU page into the active slot, or hangs on the NMI reading
-  it: the new image gets one wrong page, and the old page is gone from
-  both slots.
+The format is a contract between the bootloader and the app. Every record
+carries a mark (`0xB7` in the top byte) that none of the first
+bootloader's words had, so a mix of the two never swaps anything. Flash
+the new bootloader by SWD (`mise run bootloader`) before sending new apps
+over the air. With the first bootloader, a new app keeps running until its
+first reset; that bootloader then sees its own unconfirmed state and
+reverts it. And send only images built from this code or later: an older
+app's `confirm_boot` rewrites the page in the old format, and OTA activation
+stops on that node until it is reflashed.
 
-A fix needs progress recorded per step, so that a resume never reads a
-page that may be half-written; state records appended rather than erased
-in place; and an NMI handler that treats an ECC double error on the state
-page as an invalid record instead of spinning.
+## Boot confirm, OTA reboot and the watchdog
+
+- The bootloader starts the IWDG (5 s) before any swap work and again
+  before every jump, so an image is covered from its first instruction;
+  the app's `watchdog::start` reprograms the same timeout. An active slot
+  without a vector table is not jumped to: the bootloader waits for a
+  probe with the watchdog off.
+- An image the bootloader swaps in runs on trial. The main loop appends
+  `Confirmed` once the image has run 30 minutes with a transmission
+  completed in the last 5 and a packet heard since boot, or 6 hours
+  without one: a node with nobody in range cannot show it still receives
+  (`supervisor::confirm_ready`). Any reset before that reverts it, a
+  brown-out or SW1 included. That is the safe direction: the update can
+  be sent again.
+- After `OTA_COMPLETE` the node keeps answering retried chunks with
+  `OTA_COMPLETE` and reboots about 10 s later (plus two TX deadlines, for
+  the slow presets). The bootloader then swaps the image in.
+- Offers are refused with `BOOT_PENDING` (0x07) while a swap waits for that
+  reboot, and while the running image is on trial: its revert target in
+  the DFU slot is what a new transfer would overwrite.
+- The handoff word in TAMP_BKP0R tells the app what the bootloader did;
+  an app that finds none was started by probe-rs, and confirms a trial log
+  at once, so a reset after a debug flash cannot revert over it.
 
 ## OTA timing
 
@@ -206,8 +222,14 @@ transfer time.
   the slower presets take several times longer.
 - Upload to the basestation: 128-byte `FW_DATA` frames at 115200 baud, each
   acknowledged, about 10 s for 48 KB.
-- Bootloader swap: 56 pages, each copied three times (active to scratch, DFU
-  to active, scratch to DFU) with a boot-state write after it, so 224 page
-  erases of roughly 20-25 ms plus 168 pages programmed: about 8 s, during
-  which the node runs nothing. A power loss resumes from the progress word,
-  except in the windows above.
+- Bootloader swap: a CRC-32 over the staged image (well under a second at
+  4 MHz), then 56 pages each copied three times (active to scratch, DFU to
+  active, scratch to DFU), every copy followed by one appended record: 168
+  page erases of roughly 20-25 ms, 168 pages programmed and 169 records.
+  DS13105 Table 60 gives 81.7 us per double-word, about 21 ms a page, and
+  41.8 ms for a "2-Kbyte page", the two disagreeing: about 8 s by the first,
+  12 by the second. The node runs nothing meanwhile; the watchdog is fed
+  before each page.
+- Reboot after `OTA_COMPLETE`: 10 s plus two TX deadlines (10.3 s at
+  `fast`, 25 s at `extreme`).
+- Trial: at least 30 minutes before the new image is kept.

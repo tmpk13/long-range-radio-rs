@@ -6,15 +6,32 @@ The stm32wlxx-hal I2C driver has **no software timeout** - its internal
 `busy_wait!` macro spins indefinitely until a hardware flag fires. When
 a device is simply absent (not ACKed), the peripheral's NACK detection
 sets the NACKF flag and the driver returns `Error::Nack` quickly. If the
-bus is electrically stuck (SDA held low), the spin is truly infinite and
-only the 5 s IWDG watchdog can recover the MCU.
+bus is electrically stuck (SDA held low), the spin is truly infinite: the
+watchdog resets the chip, and the sensor holding the bus still holds it
+after the reset, because the MCU's reset does not clock SCL. With the
+display init and the sensor probe in `init`, every boot hung at the same
+spot, a reset loop with the radio never on the air.
+
+So the bus is now handled in three layers (`firmware/src/i2c_bus.rs`):
+
+- `BoundedI2c` keeps the HAL's setup but runs the HAL's transfer
+  sequences itself with a 25 ms deadline on every wait. A timeout resets
+  the peripheral and returns `Error::Bus`.
+- `bus_clear` clocks SCL up to nine times at boot, before the I2C
+  peripheral takes the pins, so a sensor interrupted mid-byte lets SDA go.
+- Nothing on the bus is addressed in `init`: the display comes up on the
+  loop's first pass and the sensors are probed at the first sweep. After
+  watchdog resets that hit during I2C (the reset record's loop phase), the
+  loop leaves the bus alone for an hour, doubling per reset in a row up
+  to a day (`supervisor::i2c_hold_ms`). A display init or a sweep that
+  returns clears the count.
 
 To keep the mesh running when the SSD1306 display is disconnected or
 fails mid-operation:
 
 - `display_ok: bool` tracks whether the display is reachable.
-- On init, `display.init()` + `flush()` results are checked; if either
-  fails, `display_ok = false` and the node boots without a display.
+- The loop's first pass tries `display.init()` + `flush()`; if either
+  fails, `display_ok = false` and the node runs without a display.
 - Every `display.flush()` in the main loop is checked; on error the
   flag is cleared and a retry timer starts.
 - Every 10 s, if `!display_ok`, the loop re-attempts `display.init()`

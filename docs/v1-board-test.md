@@ -122,8 +122,8 @@ ch572-bridge-rs:
 - [ ] `mise run bootloader` flashes the bootloader (no RTT output;
   Ctrl-C once flashed)
 - [ ] `ADDRESS=2 mise run flash --features board` flashes and attaches
-  RTT, which shows `Starting... 1`, `Starting... 2`,
-  `I2C display not detected, will retry`,
+  RTT, which shows `Starting... 1`, a `Reset: ...` line ending in
+  `bootloader: None` (probe-rs starts the app itself), `Starting... 2`,
   `SD card init failed (no card?): Timeout` and `Mesh node 2 ready`,
   then every 4-7 s a `Board: vin=... duty=0 Idle` line and `TX #n`
 - [ ] D12 flashes briefly on every TX
@@ -277,6 +277,9 @@ PORT (`/dev/ttyUSB0` through a USB-UART, `/dev/ttyACM0` through a
 CH572D). The update scheme is in
 [ARCHITECTURE.md](../ARCHITECTURE.md#over-the-air-update).
 
+- [ ] The bootloader on the board is the one step 5 flashed from this
+  code: an older bootloader never swaps a new image in
+  ([notes/boot-ota.md](../notes/boot-ota.md#the-boot-state-log-and-the-swap))
 - [ ] The board runs `ADDRESS=2 mise run flash --features board`, which
   is version 1
 - [ ] `ADDRESS=2 FW_VERSION=2 mise run ota-image --features board`
@@ -284,12 +287,24 @@ CH572D). The update scheme is in
 - [ ] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
   with `OTA transfer successful! Target node will reboot.`: took
   ____ min
-- [ ] Press SW1 (any reset will do): the node swaps the image in at
-  its next reset, not at the end of the transfer ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer))
-- [ ] `mise run data-relay -p PORT` shows the board's heartbeats again
+- [ ] About 10 s later the node resets itself and the bootloader swaps
+  the image in: `mise run attach` shows `Reset: Software(Some(Ota))`
+  with `bootloader: Some(Trial)`, then `Boot: new image on trial`, and
+  `mise run data-relay -p PORT` shows its boot report `W=5 B=2 V=2 ...`
+  followed by its heartbeats
+- [ ] The same upload during the trial ends with
+  `OTA transfer finished with result: 0x07`: the node takes no new image
+  before it has kept the one it runs
+- [ ] Send the node one message so it has heard a packet (type
+  `{"dest": 2, "data": "aGk="}` into `mise run data-relay -p PORT`):
+  30 min after the reboot RTT shows `Boot: image confirmed`. With
+  nothing heard it waits 6 h
 - [ ] The same upload again ends with
   `OTA transfer finished with result: 0x02`: the board refuses
   version 2 because it now runs it
+- [ ] Rollback: send version 3 the same way and press SW1 during its
+  trial. The bootloader puts version 2 back: RTT shows
+  `bootloader: Some(Reverted)` and the boot report `W=2 B=4 V=2`
 
 ## 11. I2C sensors and display
 
@@ -298,10 +313,11 @@ CH572D). The update scheme is in
   `I2C sensors found:` lists every fitted part
 - [ ] Every 30 s the readings print, and a `T=... H=...` line goes out
   over the mesh (keys in [notes/sensors.md](../notes/sensors.md))
-- [ ] SSD1306 on J8 or J10: `I2C display detected`, and the display
-  shows `Out: V=...` on each TX
+- [ ] SSD1306 on J8 or J10: `I2C display ready`, and the display
+  shows the boot report `Out: W=...` on the first three TX, then
+  `Out: V=...` on each TX
 - [ ] Display unplugged: `I2C display lost`; plugged back in:
-  `I2C display reconnected` within 10 s; the node keeps running
+  `I2C display ready` within 10 s; the node keeps running
   throughout
 
 ## 12. RS-485 soil probe and the 5 V rail
@@ -336,11 +352,10 @@ This needs an NMEA GPS talking RS-485 into J7, and a microSD card
 
 ## Not covered
 
-- OTA rollback, where a new image never confirms its boot and the
-  bootloader restores the old one
+- The rollback of an image that dies before its main loop runs
   ([ARCHITECTURE.md](../ARCHITECTURE.md#boot-state)): it needs a
-  deliberately broken image, and today only one that dies between
-  `watchdog::start` and `confirm_boot` in `init` reverts on its own ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer)).
+  deliberately broken image. Step 10 covers the revert of a trial image
+  that resets.
 - The CH572D's 2.4 GHz radio on J9: the bridge firmware does not use it.
 - Pulling the pack while charging (rule 2).
 

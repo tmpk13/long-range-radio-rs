@@ -32,10 +32,12 @@ flowchart LR
     probe -->|"SWD"| meshnode
 ```
 
-The partition map that the bootloader and the apps share, and the
-boot-state record between them, are defined once in
-[flash-layout/src/lib.rs](flash-layout/src/lib.rs); each crate's build
-script generates its linker `memory.x` from it.
+The partition map that the bootloader and the apps share is defined once
+in [flash-layout/src/lib.rs](flash-layout/src/lib.rs), and each crate's
+build script generates its linker `memory.x` from it. The boot-state log
+between them, the slot swap and the image CRC live in the same crate
+([flash-layout/src/boot.rs](flash-layout/src/boot.rs),
+[flash-layout/src/crc32.rs](flash-layout/src/crc32.rs)).
 
 ## Node firmware
 
@@ -61,8 +63,16 @@ classDiagram
         SubGHz SPI3
     }
     class OtaReceiver
+    class BootState {
+        boot-state log
+        confirm(), request_swap()
+    }
+    class RadioWatch {
+        <<supervisor>>
+        TX stall: re-init, reset
+    }
     class SharedI2c~T~ {
-        <<&'static RefCell~I2c2~>>
+        <<&'static RefCell~BoundedI2c~>>
         PB15 SCL / PA15 SDA
     }
     class Ssd1306
@@ -85,6 +95,9 @@ classDiagram
 
     RunTask --> MeshNode
     RunTask --> OtaReceiver
+    RunTask --> BootState
+    RunTask --> RadioWatch
+    OtaReceiver --> BootState : request_swap
     RunTask --> Board
     RunTask --> Rs422 : SEN0600 soil
     RunTask --> GpsRadioLog
@@ -119,25 +132,31 @@ resolved in probe order (notes/sensors.md, the SEN0575 section).
 
 ## Boot state
 
-The bootloader reads the boot-state word on every boot, acts on it, then
-jumps to the active slot. A swap or revert records its page progress so
-that it can resume after a power loss, though a cut at the wrong moment
-still breaks it (notes/boot-ota.md, "The swap is not power-fail-safe").
+The bootloader reads the boot-state log on every boot, carries out what
+it asks for, then jumps to the active slot. The log is an append-only
+list of records, one per flash double-word; each change appends one, so a
+power cut at any point leaves the last durable record in charge, and a
+swap or revert resumes at the page copy it was in (notes/boot-ota.md,
+"The boot-state log and the swap").
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> BOOT_OK : first flash, page erased
-    BOOT_OK --> SWAP_PENDING : OtaReceiver verified a staged image
-    SWAP_PENDING --> SWAP_COMPLETE : bootloader swapped the slots
-    SWAP_COMPLETE --> BOOT_OK : new app ran confirm_boot
-    SWAP_COMPLETE --> REVERT_PENDING : reset before confirm_boot
-    REVERT_PENDING --> BOOT_OK : bootloader restored the old image
+    [*] --> Idle : page erased
+    Idle --> Swap : OtaReceiver staged and checked an image (ImageSize, ImageCrc, Swap 0)
+    Swap --> Idle : bootloader refused the image (Refused)
+    Swap --> Swap : one page copy done (Swap n+1)
+    Swap --> Trial : all 168 copies done (Swapped)
+    Trial --> Idle : the app ran healthy for 30 min (Confirmed)
+    Trial --> Revert : a reset before Confirmed
+    Revert --> Revert : one page copied back (Revert n+1)
+    Revert --> Idle : old image back (Confirmed)
 ```
 
-`confirm_boot` runs just after `init` starts the watchdog and before the
-radio comes up, so only a new app that dies in between reverts on its own
-(notes/boot-ota.md, "Known gaps").
+The record names are `flash_layout::boot::Record`. An image the
+bootloader did not start (probe-rs sets the program counter itself)
+confirms a `Trial` log at once, so a later reset cannot "revert" over a
+freshly flashed build.
 
 ## Over-the-air update
 
@@ -162,27 +181,27 @@ sequenceDiagram
     H->>B: BEGIN_TRANSFER
     B-->>H: ACK once the staged image's CRC32 matches
     B->>N: OTA_OFFER (size, chunks, CRC32, version)
-    alt not newer than the running version, too large, or busy
-        N-->>B: OTA_REJECT (reason)
+    alt not newer, too large, busy, or boot not settled
+        N-->>B: OTA_REJECT (reason, BOOT_PENDING while on trial)
     else accepted
         N-->>B: OTA_ACCEPT
         loop every chunk
             B->>N: OTA_CHUNK (index, length, data)
             N-->>B: OTA_CHUNK_ACK (next chunk needed)
         end
-        Note over N: CRC32 over its DFU slot matches, state SWAP_PENDING
-        N-->>B: OTA_COMPLETE (CRC32)
+        Note over N: CRC32 over its DFU slot matches, the log asks for a swap
+        N-->>B: OTA_COMPLETE (CRC32), again for a retried chunk
     end
     B-->>H: OTA_DONE (result), after periodic PROGRESS
-    Note over N: no reboot, the old app keeps running
-    N->>L: next reset (power cycle, watchdog, probe)
-    Note over L: swap the slots, SWAP_COMPLETE
-    L->>N: jump to the new app, which confirms its boot
+    Note over N: about 10 s later the node resets itself
+    N->>L: software reset
+    Note over L: check size, vector table and CRC32, swap page by page
+    L->>N: jump to the new image, on trial
+    Note over N: 30 min healthy and it appends Confirmed, a reset before that reverts it
 ```
 
 The same update over time, for a 48 KB image at the default `fast`
-preset. All durations are estimates (notes/boot-ota.md, "OTA timing"),
-and the wait for a reset can be any length.
+preset. All durations are estimates (notes/boot-ota.md, "OTA timing").
 
 ```mermaid
 gantt
@@ -195,16 +214,66 @@ gantt
     Chunks over the mesh (stop-and-wait) : up, 00:10, 1340s
     section Node
     Old app receives into the DFU slot : 00:10, 1340s
-    Old app runs until a reset : crit, run, after up, 600s
-    Bootloader swaps the slots : swap, after run, 8s
-    New app confirms its boot : ok, after swap, 1s
-    New app runs : after ok, 60s
-    section Boot state
-    BOOT_OK : 00:00, 1350s
-    SWAP_PENDING : sp, after up, 608s
-    SWAP_COMPLETE : sc, after sp, 1s
-    BOOT_OK : after sc, 60s
+    Old app answers retries, then resets : wait, after up, 10s
+    Bootloader checks and swaps : swap, after wait, 9s
+    New app on trial : crit, trial, after swap, 1800s
+    New app confirmed : after trial, 300s
+    section Boot log
+    Idle : 00:00, 1350s
+    Swap : sp, after up, 19s
+    Trial : tr, after sp, 1800s
+    Idle, Confirmed : after tr, 300s
 ```
+
+## Watchdogs
+
+The independent watchdog (IWDG) resets the chip when the loop stops; the
+rest of the system decides what a reset means and makes sure each one is
+reported. `firmware/src/watchdog.rs` says who starts and feeds the IWDG,
+`firmware/src/supervisor.rs` holds the health rules, and
+`firmware/src/reset_record.rs` the backup register map.
+
+```mermaid
+flowchart LR
+    subgraph bl["Bootloader"]
+        work["swap, revert or check an image<br/>feeds before each page"]
+        jump["start the IWDG, leave the<br/>handoff word, jump to the app"]
+        park["no vector table in the active slot:<br/>wait for a probe, IWDG off"]
+    end
+    subgraph app["Node app"]
+        pass["main loop pass<br/>one feed per pass"]
+        waits["waits with their own deadline<br/>TX poll, SD busy, SD init: feed_now"]
+        i2c["I2C waits give up after 25 ms<br/>watchdog resets during I2C: bus left alone 1-24 h"]
+        radio["RadioWatch: no TX for 10 min re-inits<br/>the radio, 5 min more resets the chip"]
+        ota["OTA_COMPLETE sent:<br/>reset about 10 s later"]
+        panic["panic: record file and line, spin"]
+        gate["image on trial kept after 30 min up,<br/>a TX in the last 5 min and a packet heard"]
+    end
+    iwdg{{"IWDG<br/>5 s nominal, 4.7-5.4 s<br/>LSI clock, never stops"}}
+    reset(["system reset"])
+    record[("TAMP backup registers<br/>cause, boots, loop phase, panic site")]
+    log[("boot-state log")]
+
+    jump -- starts --> iwdg
+    work -- feeds --> iwdg
+    pass -- feeds --> iwdg
+    waits -- feeds --> iwdg
+    panic -. "stops the feeds" .-> iwdg
+    iwdg -- "a pass blocked" --> reset
+    radio -- "SoftReset RadioStall" --> reset
+    ota -- "SoftReset Ota" --> reset
+    reset --> bl
+    gate -- "appends Confirmed" --> log
+    log -- "trial reset before Confirmed: revert" --> work
+    pass -. "phase before each step" .-> record
+    reset -. "RCC_CSR flags, read at boot" .-> record
+    record -- "I2C strikes" --> i2c
+    record -- "boot report W B V N P L" --> pass
+```
+
+The boot report goes out in place of the first three heartbeats after a
+boot and every 150th after; its fields are documented at `boot_line` in
+`firmware/src/bin/main.rs`.
 
 ## Pin allocation
 

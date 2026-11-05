@@ -1,3 +1,7 @@
 - `SendingQueueIsFull` after about 18 minutes: the DWT `millis()` wrap, fixed in `firmware/src/platform.rs` (notes/mesh.md)
 - Basestation OTA node with a UART link and progress bars for firmware updates, talking to the daemon: `basestation/` and its host tools in `basestation/host/`
 - RX boost: the `RX_BOOST` build setting (`firmware/src/config.rs`)
+- OTA updates survive interruptions: an append-only boot-state log and a swap that resumes at the page copy it was in, tested under every single and double power cut (`flash-layout/src/boot.rs`, notes/boot-ota.md)
+- A new image is confirmed only after 30 min healthy on trial, and any earlier reset reverts it (`firmware/src/supervisor.rs`, notes/boot-ota.md)
+- The node reboots itself about 10 s after a completed OTA transfer (`firmware/src/ota.rs`)
+- Watchdogs: the IWDG from the bootloader on, a reset record and boot report, a radio stall supervisor, deadline-bounded I2C (ARCHITECTURE.md, Watchdogs)

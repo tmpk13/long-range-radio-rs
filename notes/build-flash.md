@@ -49,6 +49,13 @@ Enable with:
 cargo run --release --features debug
 ```
 
+With `debug` the watchdog also stops counting while a debugger halts the
+core (DBGMCU_APB1FZR1.DBG_IWDG_STOP, set in `watchdog::start`). Without
+it, a core halted at a breakpoint or a caught fault is reset about 5 s
+later, and the reset catch then shows "Exception @ 0x08000400" (below) in
+place of what halted it. DBGMCU keeps the bit until power is lost (RM0461
+36.11), and it only matters while a debugger holds the core.
+
 ## probe-rs Timeout / Reset Loop When I2C Display Disconnected
 
 With no display connected, the I2C bus has no external pull-up resistors
@@ -73,9 +80,10 @@ Fix (three layers):
    timeouts. Note: `--connect-under-reset` does NOT work with this setup
    because nRST is not wired to the probe (GP14).
 
-3. **Feed watchdog before I2C operations** (init and retry) so the full
-   5 s budget is available for I2C to fail, rather than arriving with a
-   partially-elapsed timer.
+3. **Keep the bus out of the boot path**: `init` no longer addresses the
+   bus, and every I2C wait now gives up after 25 ms (notes/sensors.md,
+   I2C Display Resilience), so even a stuck bus cannot hold the loop or
+   cause this reset loop.
 
 ## `mise run attach`: "Exception @ 0x08000400" is a reset, and a stale ELF is silent
 
@@ -106,8 +114,16 @@ first words of the ELF's binary image.
 
 Read-only checks that work on a running node without halting it: DWT_PCSR
 (0xE000101C) samples the PC. The app has no `#[idle]`, so a healthy node
-samples at the `b .` that ends RTIC's `main`. RCC_CSR (0x58000094) bit 29
-is the IWDG reset flag.
+samples at the `b .` that ends RTIC's `main`.
+
+Why the chip last reset no longer needs a probe: the app prints it at boot
+("Reset: Watchdog, boot 3 since power-on, bootloader: Some(Idle)", with
+the loop phase and any panic's file and line), and the first heartbeats
+carry it as the boot report (ARCHITECTURE.md, Watchdogs). Reading RCC_CSR
+(0x58000094) by hand no longer works: the app clears its flags at boot
+(`reset_record::take`). Before that change the flags were never cleared,
+so bit 29 (IWDGRSTF) meant only that some watchdog reset had happened
+since power-on, which is why the caught reset above went unexplained.
 
 # OpenOCD
 To unlock the `Seeed STM32WLE5 SX1262` using `openocd`

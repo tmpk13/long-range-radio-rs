@@ -11,12 +11,12 @@ Build settings (`ADDRESS`, `LORA_PRESET`, `FW_VERSION`, `RX_BOOST`) are
 environment variables documented in `firmware/src/config.rs`, and optional
 hardware sits behind the cargo features in `firmware/Cargo.toml`.
 
-- `mise run bootloader`: flash the bootloader, once per board (no RTT output; Ctrl-C once flashed)
+- `mise run bootloader`: flash the bootloader, once per board and again whenever its boot-state format changes, as it did with the boot-state log ([notes/boot-ota.md](notes/boot-ota.md)) (no RTT output; Ctrl-C once flashed)
 - `ADDRESS=2 mise run flash`: build, flash and attach RTT to node 2; append `--features debug` for verbose logging, `--features board` on the Forest Sensor Platform
 - `mise run attach`: attach RTT to a running node
 - `ADDRESS=10 mise run basestation`: build and flash the basestation node (`--features board` puts its host link on the board's USB-C)
 - `ADDRESS=2 FW_VERSION=3 mise run ota-image`: build `target/firmware.bin` for node 2 as version 3 (pass the node's `--features`)
-- `mise run ota-upload -p /dev/ttyUSB0 -t 2 -v 3 target/firmware.bin`: upload that image to node 2 through the basestation; the node takes it at its next reset ([notes/boot-ota.md](notes/boot-ota.md))
+- `mise run ota-upload -p /dev/ttyUSB0 -t 2 -v 3 target/firmware.bin`: upload that image to node 2 through the basestation; the node reboots into it about 10 s after the transfer and keeps it after 30 minutes healthy ([notes/boot-ota.md](notes/boot-ota.md))
 - `mise run data-relay -p /dev/ttyACM0`: relay mesh data from the basestation as JSON lines
 - `mise run build`: build the node firmware, bootloader and basestation without flashing
 - `mise run check`: build every feature set, the bootloader and the basestation, to catch feature-gated breakage

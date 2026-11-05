@@ -84,9 +84,9 @@ with the preset:
 
 `send()` blocks in that loop, so on `extreme` a transmit that never
 completes resets the board rather than returning `Timeout`, and on `max` the
-margin is inside the STM32WL's own LSI spread (at the 47 kHz end the real
-timeout is ~4.7 s, not 5). Upstream hit the same thing against a 6 s
-watchdog.
+margin is inside the STM32WL's own LSI spread (29.5-34 kHz over
+temperature, DS13105 Table 58: at the 34 kHz end the real timeout is
+~4.7 s, not 5). Upstream hit the same thing against a 6 s watchdog.
 
 Rather than stretch the timeout, which would blunt it everywhere, the
 bounded waits feed themselves through the new `watchdog::feed_now` - a raw
