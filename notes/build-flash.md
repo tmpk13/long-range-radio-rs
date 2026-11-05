@@ -150,6 +150,15 @@ reads through the AP FAULT and the core cannot fetch its vectors, so it
 sits in lockup (DHCSR 0x03090000, S_LOCKUP). The OpenOCD unlock above
 (`mise run unlock`) sets level 0, which erases the flash.
 
+The unlock only programs the option bytes: the stored copy at 0x1FFF7800
+then reads 0x3FFFF0AA (complement 0xC0000F55 at 0x1FFF7804), while
+FLASH_OPTR keeps 0xBB until the option bytes are loaded, at power-on or
+OBL_LAUNCH. OpenOCD's closing `reset halt` is a system reset, which does
+not load them, and `stm32l4x unlock` reports nothing either way. Power
+cycle the board after the unlock; the regression erase happens at that
+load. Through the CH572D bridge the unlock connected without holding
+NRST: OpenOCD cleared the lockup itself.
+
 ---
 
 ## Crate version bumps: embedded-io and ssd1306 must stay pinned
