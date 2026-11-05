@@ -149,8 +149,9 @@ The board has no BOOT button for the CH572D (review M3), so:
 2. PA1 (D+) pulled up to VCC before power is applied (WCH's CH572
    evaluation board manual, section 4.3, in EVT/PUB of the repo above). On
    this board: 5.1k from R41's VDD33 end to D+, then plug in. Against the
-   host's 15k pull-down D+ reads about 2.5 V; once the bootloader runs, its
-   own 1.5k pull-up in parallel lifts it to about 3.0 V. Do not use +5V:
+   host's 15k pull-down D+ reads about 2.5 V; about 3.0 V if the
+   bootloader also turns on its internal 1.5k pull-up, which no WCH
+   document says it does. Do not use +5V:
    PA1 is not 5 V tolerant (VIO33 + 0.4 V max).
 3. A WCH-LinkE on D-/D+ with wlink, catching the chip before the firmware
    claims those pins for USB.
@@ -205,11 +206,13 @@ order:
    pull-up ("Getting back into the bootloader", method 2) and plug in:
    `lsusb` shows 4348:55e0 or 1a86:55e0. `mise run ch572-flash`, then
    remove the pull-up.
-   - First board, replacement chip: VDD33 3.3 V, D+ 2.5 V with the
-     pull-up, and the host logs a full-speed attach with -71 errors. The
-     host sees only the external pull-up; the bootloader never turned on
-     its own. Suspects: U9 pin 12 not soldered, or Y2 not oscillating
-     (see Clock).
+   - First board, replacement chip: VDD33 3.3 V, so it draws at least
+     1.13 mA where the first chip drew 0.33 mA. D+ 2.5 V with the pull-up,
+     and the host logs a full-speed attach with -71 errors. No change
+     after removing C26/C27, reflowing Y2 and adding 2.2 uF + 100 nF on
+     VDD33; no 32 MHz seen on XO, probe setup unconfirmed. Suspects: an
+     open joint on D+ or D- (U9 pins 11/12, or one row of J1), or Y2 not
+     oscillating (see Clock).
 4. `lsusb` shows 1209:0001; dmesg shows a ttyACM and no descriptor errors.
    D10 lights once configured (blinks at 1 Hz until then).
 5. `probe-rs list` shows the probe. The Wio-E5 ships read-protected
