@@ -284,8 +284,8 @@ CH572D). The update scheme is in
 - [ ] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
   with `OTA transfer successful! Target node will reboot.`: took
   ____ min
-- [ ] Power-cycle the board: the node swaps the image in at its next
-  reset, not at the end of the transfer ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer))
+- [ ] Press SW1 (any reset will do): the node swaps the image in at
+  its next reset, not at the end of the transfer ([notes/boot-ota.md](../notes/boot-ota.md#known-gaps-an-early-boot-confirm-and-no-reboot-after-a-transfer))
 - [ ] `mise run data-relay -p PORT` shows the board's heartbeats again
 - [ ] The same upload again ends with
   `OTA transfer finished with result: 0x02`: the board refuses
