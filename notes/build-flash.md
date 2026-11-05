@@ -40,6 +40,35 @@ Fix (three layers):
    5 s budget is available for I2C to fail, rather than arriving with a
    partially-elapsed timer.
 
+## `mise run attach`: "Exception @ 0x08000400" is a reset, and a stale ELF is silent
+
+`Firmware exited unexpectedly: Exception` with Frame 0 at
+`<unknown function @ 0x08000400>` is not a crash in the app.
+0x08000400 is the bootloader's `Reset` handler. probe-rs arms reset
+vector catch, so a chip reset (watchdog, reset button, software reset)
+halts the core on the bootloader's first instruction. Seen on the first
+FSP board on 2026-11-05. The cause of that reset was not found: three
+later resets over SWD all booted cleanly.
+
+probe-rs leaves the core halted with the catch still armed (DEMCR read
+0x01000401). Only a power cycle clears DEMCR, so until then the reset
+button halts the core again. Each later attach also prints the previous
+boot's leftover RTT lines from RAM, so it looks like the same crash every
+time. Power-cycle the board, or attach with `--no-catch-reset
+--no-catch-hardfault` to watch without arming the catch.
+
+`mise run attach` finds the RTT block at the `_SEGGER_RTT` address of the
+ELF on disk, despite `--rtt-scan-memory`. After a build that never reached
+the chip, attach prints nothing: a `board` rebuild had moved the block from
+0x20000c44 to 0x20000c3c. To check that the chip runs the ELF on disk,
+compare `probe-rs read --chip STM32WLE5JCIx b32 0x08004000 4` with the
+first words of the ELF's binary image.
+
+Read-only checks that work on a running node without halting it: DWT_PCSR
+(0xE000101C) samples the PC. The app has no `#[idle]`, so a healthy node
+samples at the `b .` that ends RTIC's `main`. RCC_CSR (0x58000094) bit 29
+is the IWDG reset flag.
+
 # OpenOCD
 To unlock the `Seeed STM32WLE5 SX1262` using `openocd`
 `openocd -f interface/cmsis-dap.cfg -f target/stm32wlx.cfg -c "init; reset halt; stm32l4x unlock 0; reset halt; exit"`
