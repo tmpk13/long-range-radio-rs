@@ -112,6 +112,26 @@ the chip, attach prints nothing: a `board` rebuild had moved the block from
 compare `probe-rs read --chip STM32WLE5JCIx b32 0x08004000 4` with the
 first words of the ELF's binary image.
 
+Attach also prints nothing when the bootloader is missing, even if the app
+on the chip matches the ELF. `mise run unlock` erases all of flash, and
+`mise run flash` writes only the app at 0x08004000. With 0x08000000 blank,
+the empty check (FLASH_ACR bit 16 EMPTY, RM0461 3.3.2) boots ST's ROM
+bootloader in system memory, so the app never runs. Seen on board 2 on
+2026-11-05: it had been unlocked, and only the app was flashed afterwards.
+Each sign reads without halting the core:
+
+- `probe-rs read --chip STM32WLE5JCIx b32 0x08000000 1` reads ffffffff.
+- VTOR (0xE000ED08) reads 0x1FFF0000, which is system memory.
+- FLASH_ACR (0x58004000) has bit 16 set (0x00010602).
+- The ELF's `_SEGGER_RTT` address holds Thumb code, not "SEGGER RTT".
+  That is probe-rs's flash loader still in RAM, because the app's startup
+  never ran to zero .bss.
+
+`mise run bootloader` fixes it. Per RM0461, EMPTY is refreshed only at
+power-on or an option-byte load, so a system reset after flashing may
+still boot ROM. Here it read clear after the bootloader download, and a
+plain `probe-rs reset` booted the bootloader, then the app.
+
 Read-only checks that work on a running node without halting it: DWT_PCSR
 (0xE000101C) samples the PC. The app has no `#[idle]`, so a healthy node
 samples at the `b .` that ends RTIC's `main`.
