@@ -145,5 +145,8 @@ flat; its side pads had too little solder. An open V5 (pin 8) or VDD33
 (pin 6) joint explains the 1.5 V: the internal regulator cannot drive
 the VDD33 net, and R41's ~2 mA from +5V is all that feeds it. More
 solder on the side pads fixed it: the blank chip came up as 1a86:55e0
-and took the bridge firmware. The running crystal did not show that the
-chip worked; VDD33 did.
+and took the bridge firmware. It did so without the VDD33 caps board 1
+got (2.2 uF and 100 nF, BOARD-REVIEW.md H1 in the board repo), so
+missing caps were not behind the 1.5 V; whether it stays on USB under
+load without them, H1's concern, is untested. The running crystal did
+not show that the chip worked; VDD33 did.
