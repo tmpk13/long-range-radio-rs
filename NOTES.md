@@ -7,7 +7,7 @@ One topic per file. Read this index, then only the files the task touches.
 - `notes/radio.md`: TX packet params, async TX, the XIAO TCXO, dead-radio diagnosis, the sx126x wait_on_busy fix, the SubGhz HAL API reference, LORA_PRESET, RxBoost.
 - `notes/mesh.md`: TX/RX timing and the listen period, the DWT millis() wrap behind SendingQueueIsFull, broadcast collisions.
 - `notes/sensors.md`: display hot-plug and the deadline-bounded I2C bus (bus clear at boot, hold-off after I2C watchdog resets), the I2C sensor suite and RS-422 link, SHT45/MCP9808/BMP280, the sensor sweep broadcast and dashboard capture, the SEN0575 rain gauge.
-- `notes/board.md`: the board feature on the Forest Sensor Platform V1: what changed from the old charger board, sense scaling, buck drive, the MPPT controller, the activity LED and switched 5 V rail, RS-485 direction control, first bring-up results on board 1 (the test procedure is docs/v1-board-test.md).
+- `notes/board.md`: the board feature on the Forest Sensor Platform V1: what changed from the old charger board, sense scaling, buck drive, the MPPT controller, the activity LED and switched 5 V rail, RS-485 direction control, first bring-up results on boards 1 and 2 (board 2's CH572D kept off USB by dry QFN side pads; the test procedure is docs/v1-board-test.md).
 - `notes/gpslog.md`: the gps-radio-log feature and its status line (sats, last RX RSSI, time since RX).
 - `notes/audits.md`: radio fixes and the second bug sweep ported back from the esp32c6-gps derivative.
 - The CH572D USB bridge (its firmware, flashing, bootloader entry, the board issues that touch it): [ch572-bridge-rs NOTES.md](https://github.com/tmpk13/ch572-bridge-rs/blob/main/NOTES.md).

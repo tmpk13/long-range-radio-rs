@@ -70,7 +70,8 @@ Rework every V1 needs before power:
 - [ ] Y2 turned 90 degrees, so XI and XO are not shorted ([review] P3)
 - [ ] C26 and C27 off ([review] H2); 2.2 uF and 100 nF added on VDD33 at
   R41's U9 end ([review] H1)
-- [ ] U9 flat on a thin exposed-pad layer ([review] P4)
+- [ ] U9 flat on a thin exposed-pad layer ([review] P4), with solder on
+  every side pad (board 2 in [notes/board.md](../notes/board.md#first-bring-up))
 
 Then:
 

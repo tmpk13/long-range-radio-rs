@@ -136,3 +136,14 @@ on 2026-11-04, and probe-rs read the Wio-E5 through it the same day, at
 RDP 1. RM0461 gives DPIDR 0x5BA02477; that board read 0x6BA02477.
 Nothing yet from the `board` build or the serial link (checklist
 sections 5 and 9).
+
+Board 2 (2026-11-05): the CH572D showed nothing on USB, not even a
+failed enumeration (board 1's first chip gave `error -71`). Its crystal
+ran at 32 MHz, D+ and D- read 9 Mohm to GND and the cable was good, but
+VDD33 at R41's U9 end read 1.5 V with 5 V on R41's other end. U9 sat
+flat; its side pads had too little solder. An open V5 (pin 8) or VDD33
+(pin 6) joint explains the 1.5 V: the internal regulator cannot drive
+the VDD33 net, and R41's ~2 mA from +5V is all that feeds it. More
+solder on the side pads fixed it: the blank chip came up as 1a86:55e0
+and took the bridge firmware. The running crystal did not show that the
+chip worked; VDD33 did.
