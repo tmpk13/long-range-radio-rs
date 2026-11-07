@@ -128,6 +128,14 @@ the driver on for the request, then reverses both.
   this way, ~8 ms in, as `Soil probe: Uart`. `Rs422::new` now turns on
   PB7's internal pull-up, and an error during the request reports as
   `TxUart`, apart from `Uart` while collecting the response.
+- No termination or bias is needed for the soil probe. At 9600 baud a
+  bit lasts 104 us and the UART samples mid-bit, while reflections on a
+  cable under ~100 m (5 ns/m) settle within a microsecond. The TPT482
+  has full fail-safe (R reads high on an open, shorted, or terminated
+  but undriven bus, per https://www.3peak.com/rs485/tpt482), so the
+  missing bias resistors (board review M4) do not affect our receiver.
+  A 120 ohm terminator would add ~15 mA to whoever drives; on the probe
+  that comes through R35, which drops 1 V per 10 mA if fitted as 100 ohm.
 - `rs422` implies `board`: the probe is powered from the switched 5 V
   rail. The main loop turns the rail on `SOIL_WARMUP_MS` (2 s) before
   the 30 s sweep and off after the poll. 2 s is a guess with margin; the
