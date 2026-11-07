@@ -11,7 +11,9 @@
 //! B to Z), so the driver is enabled only while a request is on the wire,
 //! and the receiver is switched off meanwhile so the request does not
 //! echo back into RX.  The pulldowns give the right idle state from
-//! reset: driver off, receiver on.
+//! reset: driver off, receiver on.  The receiver output R has no pull-up
+//! on the board and floats while it is off, so PB7's internal pull-up
+//! holds the line idle instead.
 //!
 //! J7 carries the bus plus a sensor supply from the switched 5 V rail, so
 //! a probe answers only while [`crate::board::Rail5v`] is on and has had
@@ -50,8 +52,12 @@ const TX_DONE_TIMEOUT_MS: u32 = 50;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Rs422Error {
-    /// UART framing/noise/overrun/parity error.
+    /// UART framing/noise/overrun/parity error while collecting the
+    /// response.
     Uart,
+    /// A receive error flag was pending while the request was going out.
+    /// The HAL refuses to queue a byte then, so the request was cut short.
+    TxUart,
     /// No (or truncated) response before the deadline.
     Timeout,
     /// Response failed the CRC check.
@@ -107,6 +113,14 @@ impl Rs422 {
         let uart = Uart1::new(usart1, BAUD, uart::Clk::PClk, rcc)
             .enable_rx(b7, cs)
             .enable_tx(b6, cs);
+        // While /RE is high the transceiver's R output is disabled (high
+        // impedance) and nothing else on the board drives PB7, so the
+        // UART clocks in noise during every request; the receive error
+        // that leaves pending makes the HAL refuse the next TX byte.  The
+        // HAL sets the pin's alternate function but no pull, so turn on
+        // the internal pull-up to hold the line at its idle level.  The
+        // read-modify-write is safe inside the caller's critical section.
+        unsafe { (*pac::GPIOB::PTR).pupdr.modify(|_, w| w.pupdr7().pull_up()) };
         // Low on both: driver off, receiver on, matching the pulldowns.
         Self {
             uart,
@@ -157,7 +171,7 @@ impl Rs422 {
     /// and writing TDR clears it, so it cannot be left over from before.
     fn send(&mut self, buf: &[u8]) -> Result<(), Rs422Error> {
         for &byte in buf {
-            nb::block!(self.uart.write(byte)).map_err(|_| Rs422Error::Uart)?;
+            nb::block!(self.uart.write(byte)).map_err(|_| Rs422Error::TxUart)?;
         }
         let start = millis();
         while self.regs().isr.read().tc().bit_is_clear() {
@@ -207,6 +221,11 @@ impl Rs422 {
         let crc = crc16(&req[..6]);
         req[6..8].copy_from_slice(&crc.to_le_bytes());
         self.write_all(&req)?;
+        // Whatever arrived while the receiver was switched over is not the
+        // response.  Dropping it now loses nothing: a Modbus RTU slave
+        // waits 3.5 character times of silence before it answers.
+        self.clear_errors();
+        self.drain();
 
         // Collect the response: addr, func, byte count, data, CRC16.
         let expected = 5 + 2 * out.len();

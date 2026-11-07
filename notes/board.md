@@ -120,6 +120,14 @@ the driver on for the request, then reverses both.
 - DE must stay up until ISR.TC. The HAL's serial `flush` polls ISR.BUSY,
   which is the receiver's busy flag, so it returns while the last byte
   is still shifting out; dropping DE on it truncates the request.
+- PB7 floats during every request: R goes high impedance while /RE is
+  high, the net has no pull-up, and the HAL leaves the AF pin unpulled.
+  The noise sets a receive error flag, and the HAL's serial `write`
+  refuses to queue a byte while one is pending, so the request is cut
+  short. The first bench run (node address 3, 2026-11-06) failed every poll
+  this way, ~8 ms in, as `Soil probe: Uart`. `Rs422::new` now turns on
+  PB7's internal pull-up, and an error during the request reports as
+  `TxUart`, apart from `Uart` while collecting the response.
 - `rs422` implies `board`: the probe is powered from the switched 5 V
   rail. The main loop turns the rail on `SOIL_WARMUP_MS` (2 s) before
   the 30 s sweep and off after the poll. 2 s is a guess with margin; the
