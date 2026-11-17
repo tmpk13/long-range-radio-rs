@@ -103,8 +103,9 @@ ch572-bridge-rs:
   verified
 - [ ] Step 4: the bridge enumerates; D10 steady
 - [ ] On USB alone: +5V (C28) ____ V, +3.3V (TP2) ____ V
-- [ ] Optional, step 5: `mise run boot` reaches the ROM bootloader (not
-  yet seen on hardware)
+- [ ] Optional, step 5: `mise run boot` reaches the ROM bootloader
+  (seen 2026-11-17, but a flash from there fails and leaves the CH572D
+  off USB until a power cycle, [bridge-boot])
 
 ## 4. Wio-E5 through the bridge
 
@@ -281,11 +282,13 @@ CH572D). The update scheme is in
 With two V1 boards on one host, each CH572D needs its own USB serial
 number: probe-rs picks a probe by it, and two bridges with the same one
 also share a single `/dev/serial/by-id` name. `probe-rs list` shows
-each as `1209:0001:<serial>`. If both read the default `FSP-1`, plug in
-only the board under test and, in [ch572-bridge-rs][bridge], run
-`mise run boot` and then `BRIDGE_SERIAL=FSP-2 mise run flash` (the boot
-jump is unverified; a failed one hangs the CH572D until it is unplugged,
-[bridge-boot]). After that:
+each as `1209:0001:<serial>`. If both read the default `FSP-1`,
+re-flash one bridge with `BRIDGE_SERIAL=FSP-2 mise run flash` in
+[ch572-bridge-rs][bridge], with only that board plugged in. Its ROM
+bootloader has to be reached another way than `mise run boot`, whose
+bootloader fails the flash ([bridge-boot]): the PA1 pull-up at plug-in
+from the same section. Until then, keep only one board on USB while
+running probe-rs. After that:
 
 - prefix every probe-rs task with its board's probe, for example
   `PROBE_RS_PROBE=1209:0001:FSP-2 mise run attach`;
