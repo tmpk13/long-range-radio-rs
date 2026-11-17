@@ -278,11 +278,36 @@ PORT (`/dev/ttyUSB0` through a USB-UART, `/dev/ttyACM0` through a
 CH572D). The update scheme is in
 [ARCHITECTURE.md](../ARCHITECTURE.md#over-the-air-update).
 
+With two V1 boards on one host, each CH572D needs its own USB serial
+number: probe-rs picks a probe by it, and two bridges with the same one
+also share a single `/dev/serial/by-id` name. `probe-rs list` shows
+each as `1209:0001:<serial>`. If both read the default `FSP-1`, plug in
+only the board under test and, in [ch572-bridge-rs][bridge], run
+`mise run boot` and then `BRIDGE_SERIAL=FSP-2 mise run flash` (the boot
+jump is unverified; a failed one hangs the CH572D until it is unplugged,
+[bridge-boot]). After that:
+
+- prefix every probe-rs task with its board's probe, for example
+  `PROBE_RS_PROBE=1209:0001:FSP-2 mise run attach`;
+- give PORT as the basestation board's entry in `/dev/serial/by-id/`,
+  the one ending in its serial and `-if00`, which stays the same
+  whatever order the boards enumerate in.
+
 - [ ] The bootloader on the board is the one step 5 flashed from this
   code: an older bootloader never swaps a new image in
   ([notes/boot-ota.md](../notes/boot-ota.md#the-boot-state-log-and-the-swap))
 - [ ] The board runs `ADDRESS=2 mise run flash --features board`, which
   is version 1
+- [ ] Nothing can catch the node's resets: stop the flash session
+  (Ctrl-C), unplug and replug the board's USB-C, and from here on
+  attach only with `mise run attach --no-catch-reset
+  --no-catch-hardfault`. probe-rs arms a reset vector catch by default
+  and can leave it armed after it exits; only a power cycle clears it
+  for certain. A caught reset halts the node on the bootloader's first
+  instruction until a power cycle, so the swap and the rollback below
+  wait, and the boot then reports a power-on reset instead of the OTA
+  reboot
+  ([notes/build-flash.md](../notes/build-flash.md#mise-run-attach-exception--0x08000400-is-a-reset-and-a-stale-elf-is-silent))
 - [ ] `ADDRESS=2 FW_VERSION=2 mise run ota-image --features board`
   writes `target/firmware.bin`
 - [ ] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
