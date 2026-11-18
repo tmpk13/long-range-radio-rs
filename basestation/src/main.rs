@@ -194,6 +194,11 @@ mod app {
 
         // ---- Host link: USART1 PB6 TX / PB7 RX, or USART2 PA2 TX / PA3 RX
         // through the CH572D USB bridge with `board` ----------------------
+        // The UART runs from HSI16, which the HAL selects but does not
+        // start.  Without it the transmitter never comes up: the first send
+        // spins until the watchdog resets the chip.
+        rcc.cr.modify(|_, w| w.hsion().set_bit());
+        while rcc.cr.read().hsirdy().is_not_ready() {}
         #[cfg(not(feature = "board"))]
         let uart = {
             let gpiob = stm32wlxx_hal::gpio::PortB::split(dp.GPIOB, &mut rcc);
@@ -297,7 +302,10 @@ mod app {
                         }
                     }
                     Err(nb::Error::WouldBlock) => break,
-                    Err(_) => break,
+                    Err(_) => {
+                        clear_uart_errors();
+                        break;
+                    }
                 }
             }
 
@@ -710,14 +718,15 @@ mod app {
         true
     }
 
-    /// Blocking send of a byte slice over UART.
+    /// Blocking send of a byte slice over UART.  A receive error flag makes
+    /// the HAL refuse writes too, so it is cleared and the byte retried.
     fn uart_send<TX: embedded_hal::serial::Write<u8>>(uart: &mut TX, data: &[u8]) {
         for &byte in data {
             loop {
                 match uart.write(byte) {
                     Ok(()) => break,
                     Err(nb::Error::WouldBlock) => continue,
-                    Err(_) => break,
+                    Err(_) => clear_uart_errors(),
                 }
             }
         }
@@ -725,8 +734,22 @@ mod app {
             match uart.flush() {
                 Ok(()) => break,
                 Err(nb::Error::WouldBlock) => continue,
-                Err(_) => break,
+                Err(_) => clear_uart_errors(),
             }
         }
+    }
+
+    /// Clear the host UART's parity, framing, noise and overrun flags.  The
+    /// HAL reports these as errors from every read and write but never
+    /// clears them, so one bad received byte (a glitch while the USB bridge
+    /// restarts, say) would cut the host link until the next reset.
+    fn clear_uart_errors() {
+        #[cfg(not(feature = "board"))]
+        let usart = unsafe { &*stm32wlxx_hal::pac::USART1::ptr() };
+        #[cfg(feature = "board")]
+        let usart = unsafe { &*stm32wlxx_hal::pac::USART2::ptr() };
+        usart
+            .icr
+            .write(|w| w.pecf().set_bit().fecf().set_bit().ncf().set_bit().orecf().set_bit());
     }
 }
