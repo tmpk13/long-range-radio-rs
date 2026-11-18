@@ -161,8 +161,11 @@ flat; its side pads had too little solder. An open V5 (pin 8) or VDD33
 (pin 6) joint explains the 1.5 V: the internal regulator cannot drive
 the VDD33 net, and R41's ~2 mA from +5V is all that feeds it. More
 solder on the side pads fixed it: the blank chip came up as 1a86:55e0
-and took the bridge firmware. It did so without the VDD33 caps board 1
-got (2.2 uF and 100 nF, BOARD-REVIEW.md H1 in the board repo), so
-missing caps were not behind the 1.5 V; whether it stays on USB under
-load without them, H1's concern, is untested. The running crystal did
-not show that the chip worked; VDD33 did.
+and took the bridge firmware. Neither board has the VDD33 caps (2.2 uF
+and 100 nF, BOARD-REVIEW.md H1 in the board repo), so missing caps were
+not behind the 1.5 V. They are the likely cause of a later fault: on
+2026-11-17 both bridges restarted whenever USB traffic started, with
+VDD33 at 3.27 V idle (board 1); the tests are in
+[ch572-bridge-rs](https://github.com/tmpk13/ch572-bridge-rs)
+notes/bridge.md, "Bridges restart under USB traffic". The running
+crystal did not show that the chip worked; VDD33 did.
