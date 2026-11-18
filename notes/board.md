@@ -150,7 +150,7 @@ checklist in [docs/v1-board-test.md](../docs/v1-board-test.md). Results
 on the first board: the CH572D bridge passed steps 1-4 of its bring-up
 on 2026-11-04, and probe-rs read the Wio-E5 through it the same day, at
 RDP 1. RM0461 gives DPIDR 0x5BA02477; that board read 0x6BA02477.
-Nothing yet from the `board` build or the serial link (checklist
+The `board` build and the serial link: see "Two boards" below (checklist
 sections 5 and 9).
 
 Board 2 (2026-11-05): the CH572D showed nothing on USB, not even a
@@ -163,9 +163,20 @@ the VDD33 net, and R41's ~2 mA from +5V is all that feeds it. More
 solder on the side pads fixed it: the blank chip came up as 1a86:55e0
 and took the bridge firmware. Neither board has the VDD33 caps (2.2 uF
 and 100 nF, BOARD-REVIEW.md H1 in the board repo), so missing caps were
-not behind the 1.5 V. They are the likely cause of a later fault: on
+not behind the 1.5 V. Their absence was behind a later fault: on
 2026-11-17 both bridges restarted whenever USB traffic started, with
-VDD33 at 3.27 V idle (board 1); the tests are in
-[ch572-bridge-rs](https://github.com/tmpk13/ch572-bridge-rs)
-notes/bridge.md, "Bridges restart under USB traffic". The running
+VDD33 at 3.27 V idle (board 1). With the caps fitted on both boards the
+same day, the restarts stopped: both passed the EP0 and port-open tests
+that had restarted them, a 256 KB SWD read, and every flash since
+([ch572-bridge-rs](https://github.com/tmpk13/ch572-bridge-rs)
+notes/bridge.md, "Bridges restart under USB traffic"). The running
 crystal did not show that the chip worked; VDD33 did.
+
+Two boards, 2026-11-17: the `board` builds of the node (ADDRESS=2) and
+the basestation (ADDRESS=10) talk both ways at -22 to -26 dBm, antennas
+on SMA1 a short way apart on the bench, and `mise run data-relay`
+prints each heartbeat. The basestation needed three fixes first
+([boot-ota.md](boot-ota.md), "Basestation Node - UART Pin Selection").
+The node logs `radio op error 0x0020` (XOSC_START_ERR) once at boot on
+either board, then transmits and receives normally; the basestation
+logs no error.

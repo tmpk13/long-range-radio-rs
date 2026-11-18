@@ -104,9 +104,23 @@ OTA, 0x10-0x1F for data relay) so no second UART is needed.
   Forest Sensor Platform USART1 belongs to the RS-485 transceiver, and USART2
   runs to the CH572D, which bridges it to USB-C.
 
-HSI16 (16 MHz) clock source at 115200 baud. The HAL enables HSI16 automatically
-when `uart::Clk::Hsi16` is specified - it runs independently of the MSI system
-clock.
+HSI16 (16 MHz) clock source at 115200 baud, independent of the MSI system
+clock. `uart::Clk::Hsi16` only selects HSI16; the caller has to start it
+(HSION, then wait for HSIRDY). Until 8505c43 nothing did: USART2 never set
+TEACK or TXFNF, the first send spun, and on a V1 board (2026-11-17) the IWDG
+reset the basestation every 5.5 s, so it had likely never reached a host.
+
+Host bytes are received in the USART interrupt into a 512-byte queue
+(44d0a53). Polling from the main loop lost them: the receive FIFO holds 8
+bytes, 0.7 ms at 115200, while the loop sleeps 1 ms per pass and blocks for
+whole radio transmissions. Measured on a V1 board: 7/8 8-byte frames and
+1/8 16-byte frames acknowledged before, 8/8 of each after. The HAL also
+reports parity, framing, noise and overrun flags from every read and write
+without ever clearing them, so the basestation clears them through ICR.
+
+The basestation sends PROGRESS every 500 ms in every state and RECV_MSG for
+each mesh message, unasked, so the host skips both while it waits for a
+command's ACK (`_expect_ack`).
 
 ## OTA Chunk Null-Byte Truncation (Protocol Change)
 
@@ -238,8 +252,18 @@ changes. Three checks now:
 
 ## OTA timing
 
-Estimates, not measurements; docs/v1-board-test.md step 10 records a real
-transfer time.
+Measured on two V1 boards on the bench, 2026-11-17, at the default `fast`
+preset with a 57,828-byte image (2,142 chunks):
+
+- Upload to the basestation: 8 s (6.5 kB/s).
+- Mesh transfer: 32 min 30 s, about 0.91 s per chunk, so a full 112 KB
+  slot (4,248 chunks) would take about 64 min.
+- Reboot: 10.2 s from the host's `OTA transfer successful!` to the node's
+  `OTA: rebooting into the staged image`; the new image's first RTT line
+  came 8.6 s later (swap plus boot, read through RTT, so an upper bound).
+- An offer the node refuses (0x07, during a trial): 9.7 s end to end.
+
+The estimates below came first; the mesh figure was about 20% low.
 
 - Mesh transfer: stop-and-wait, one 27-byte chunk per round trip. An earlier
   estimate put a round trip at about 0.75 s at the default `fast` preset

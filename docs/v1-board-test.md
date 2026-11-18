@@ -68,8 +68,10 @@ Rework every V1 needs before power:
   its cathode on the sensor-supply side, away from the silkscreen mark
   ([review] P1)
 - [ ] Y2 turned 90 degrees, so XI and XO are not shorted ([review] P3)
-- [ ] C26 and C27 off ([review] H2); 2.2 uF and 100 nF added on VDD33 at
-  R41's U9 end ([review] H1)
+- [ ] C26 and C27 off ([review] H2)
+- [x] 2.2 uF and 100 nF added on VDD33 at R41's U9 end ([review] H1).
+  Without them the bridge restarts under USB traffic (both boards,
+  2026-11-17, [notes/board.md](../notes/board.md#first-bring-up))
 - [ ] U9 flat on a thin exposed-pad layer ([review] P4), with solder on
   every side pad (board 2 in [notes/board.md](../notes/board.md#first-bring-up))
 
@@ -264,9 +266,9 @@ LORA_PRESET as the board.
 The board runs the basestation, with its host link through the CH572D's
 serial port; the second node (ADDRESS=3) runs the node firmware.
 
-- [ ] `ADDRESS=10 mise run basestation --features board` on the board
-- [ ] `mise run data-relay -p /dev/ttyACM0` prints a JSON line for each
-  of node 3's heartbeats: `src` 3, its `rssi`, and the message in base64
+- [x] `ADDRESS=10 mise run basestation --features board` on the board
+- [x] `mise run data-relay -p /dev/ttyACM0` prints a JSON line for each
+  of node 3's heartbeats (2026-11-17, with node 2): `src` 3, its `rssi`, and the message in base64
   under `data`
 - [ ] With a panel connected, TP8 stays at 0 V: the basestation never
   drives the buck, so a board running it does not charge its pack
@@ -296,10 +298,10 @@ running probe-rs. After that:
   the one ending in its serial and `-if00`, which stays the same
   whatever order the boards enumerate in.
 
-- [ ] The bootloader on the board is the one step 5 flashed from this
+- [x] The bootloader on the board is the one step 5 flashed from this
   code: an older bootloader never swaps a new image in
   ([notes/boot-ota.md](../notes/boot-ota.md#the-boot-state-log-and-the-swap))
-- [ ] The board runs `ADDRESS=2 mise run flash --features board`, which
+- [x] The board runs `ADDRESS=2 mise run flash --features board`, which
   is version 1
 - [ ] Nothing can catch the node's resets: stop the flash session
   (Ctrl-C), unplug and replug the board's USB-C, and from here on
@@ -311,17 +313,18 @@ running probe-rs. After that:
   wait, and the boot then reports a power-on reset instead of the OTA
   reboot
   ([notes/build-flash.md](../notes/build-flash.md#mise-run-attach-exception--0x08000400-is-a-reset-and-a-stale-elf-is-silent))
-- [ ] `ADDRESS=2 FW_VERSION=2 mise run ota-image --features board`
+- [x] `ADDRESS=2 FW_VERSION=2 mise run ota-image --features board`
   writes `target/firmware.bin`
-- [ ] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
+- [x] `mise run ota-upload -p PORT -t 2 -v 2 target/firmware.bin` ends
   with `OTA transfer successful! Target node will reboot.`: took
-  ____ min
-- [ ] About 10 s later the node resets itself and the bootloader swaps
+  32.7 min (2026-11-17, 57,828 bytes: 8 s to the basestation, the rest
+  over the mesh at the `fast` preset)
+- [x] About 10 s later the node resets itself and the bootloader swaps
   the image in: `mise run attach` shows `Reset: Software(Some(Ota))`
   with `bootloader: Some(Trial)`, then `Boot: new image on trial`, and
   `mise run data-relay -p PORT` shows its boot report `W=5 B=2 V=2 ...`
   followed by its heartbeats
-- [ ] The same upload during the trial ends with
+- [x] The same upload during the trial ends with
   `OTA transfer finished with result: 0x07`: the node takes no new image
   before it has kept the one it runs
 - [ ] Send the node one message so it has heard a packet (type
