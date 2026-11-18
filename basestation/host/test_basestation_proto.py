@@ -16,6 +16,7 @@ from basestation_proto import (
     Basestation,
     BasestationError,
     build_frame,
+    parse_frame,
 )
 
 
@@ -71,6 +72,42 @@ class ExpectAck(unittest.TestCase):
         bs = station(IDLE_PROGRESS + HEARTBEAT)
         with self.assertRaisesRegex(BasestationError, "Timeout"):
             bs.send_fw_data(b"x")
+
+
+class Resync(unittest.TestCase):
+    """The bridge drops bytes while the port is closed, so a newly opened
+    port can start with truncated frames; their bogus lengths must not
+    swallow the frames after them."""
+
+    def test_truncated_frame_before_the_ack(self):
+        # SYNC, a length of 64, then only a few bytes of payload.
+        stale = bytes([0xAA, 0x40, 0x00, 0x83, 0x00, 0x00])
+        bs = station(stale + build_frame(RESP_ACK))
+        bs.send_fw_data(b"x")
+
+    def test_sync_byte_inside_a_cut_frame(self):
+        # A cut PROGRESS frame whose last kept byte is 0xAA, the SYNC value.
+        cut = IDLE_PROGRESS[:5] + b"\xaa"
+        bs = station(cut + HEARTBEAT + build_frame(RESP_ACK))
+        bs.send_fw_data(b"x")
+
+    def test_frame_split_across_reads_is_not_lost(self):
+        whole = build_frame(RESP_ACK)
+        bs = station(whole[:2])
+        self.assertIsNone(parse_frame(bs.ser, timeout=0.05))
+        bs.ser.incoming += whole[2:]
+        frame = parse_frame(bs.ser, timeout=0.2)
+        self.assertIsNotNone(frame)
+        self.assertEqual(frame.cmd, RESP_ACK)
+
+
+    def test_frame_with_sync_in_its_payload_split_across_reads(self):
+        whole = build_frame(RESP_RECV_MSG, bytes([2, 0xAA, 0xFF]) + b"\xaa\x00\x00x")
+        bs = station(whole[:9])
+        self.assertIsNone(parse_frame(bs.ser, timeout=0.05))
+        bs.ser.incoming += whole[9:]
+        frame = parse_frame(bs.ser, timeout=0.2)
+        self.assertEqual((frame.cmd, frame.payload), (RESP_RECV_MSG, whole[4:-1]))
 
 
 class SendWithoutAck(unittest.TestCase):

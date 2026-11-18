@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import struct
 import time
+import weakref
 from dataclasses import dataclass
 
 import serial
@@ -88,43 +89,91 @@ class Frame:
     payload: bytes
 
 
+# Bytes parse_frame took from a port but has not used, per port: the rest
+# of a frame that did not check out, or a frame still arriving at timeout.
+_unread: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _read(ser: serial.Serial, n: int, deadline: float) -> bytes:
+    """Up to n bytes, pushed-back ones first, waiting until the deadline."""
+    out = bytearray()
+    back = _unread.get(ser)
+    if back:
+        out += back[:n]
+        del back[:n]
+    while len(out) < n and time.monotonic() < deadline:
+        out += ser.read(n - len(out))
+    return bytes(out)
+
+
+def _push_back(ser: serial.Serial, data: bytes):
+    _unread[ser] = bytearray(data) + _unread.get(ser, bytearray())
+
+
+def _frame_at(buf: bytes, k: int) -> bool:
+    """Whether a whole frame with a good CRC starts at buf[k]."""
+    if buf[k] != SYNC or k + 5 > len(buf):
+        return False
+    plen = buf[k + 1] | (buf[k + 2] << 8)
+    end = k + 4 + plen + 1
+    if plen > MAX_PAYLOAD or end > len(buf):
+        return False
+    return crc8(buf[k + 3 : end - 1]) == buf[end - 1]
+
+
 def parse_frame(ser: serial.Serial, timeout: float = 2.0) -> Frame | None:
-    """Read one frame from serial.  Returns None on timeout."""
+    """Read one frame from serial.  Returns None on timeout.
+
+    A frame that fails its length or CRC check is not thrown away whole:
+    its 0xAA may have been a payload byte, or the start of a frame the
+    USB bridge cut short while the port was closed, and the real frames
+    that follow would go with it.  Scanning resumes at the byte after
+    that 0xAA instead.
+    """
     deadline = time.monotonic() + timeout
+    while True:
+        # Wait for sync byte
+        while True:
+            b = _read(ser, 1, deadline)
+            if not b:
+                return None
+            if b[0] == SYNC:
+                break
 
-    # Wait for sync byte
-    while time.monotonic() < deadline:
-        b = ser.read(1)
-        if not b:
+        # LEN (2 bytes), then CMD (1) + PAYLOAD (LEN) + CRC (1)
+        raw_len = _read(ser, 2, deadline)
+        if len(raw_len) < 2:
+            _push_back(ser, bytes([SYNC]) + raw_len)
+            return None
+        plen = raw_len[0] | (raw_len[1] << 8)
+        if plen > MAX_PAYLOAD:
+            _push_back(ser, raw_len)
             continue
-        if b[0] == SYNC:
-            break
-    else:
-        return None
 
-    # Read LEN (2 bytes)
-    raw_len = ser.read(2)
-    if len(raw_len) < 2:
-        return None
-    plen = raw_len[0] | (raw_len[1] << 8)
-    if plen > MAX_PAYLOAD:
-        return None
+        remaining = 1 + plen + 1
+        data = _read(ser, remaining, deadline)
+        if len(data) < remaining:
+            # Either a frame still arriving, or a cut frame whose length
+            # reaches past the frames after it.  A whole, valid frame among
+            # the bytes already read means the latter: skip this SYNC and
+            # rescan them.  Otherwise keep everything for the next call.
+            rest = raw_len + data
+            _push_back(ser, bytes([SYNC]) + rest)
+            if not any(_frame_at(rest, k) for k in range(len(rest))):
+                return None
+            _read(ser, 1, deadline)
+            continue
 
-    # Read CMD (1 byte) + PAYLOAD (plen bytes) + CRC (1 byte)
-    remaining = 1 + plen + 1
-    data = ser.read(remaining)
-    if len(data) < remaining:
-        return None
+        cmd = data[0]
+        payload = data[1 : 1 + plen]
+        received_crc = data[-1]
 
-    cmd = data[0]
-    payload = data[1 : 1 + plen]
-    received_crc = data[-1]
+        expected_crc = crc8(bytes([cmd]) + payload)
+        if received_crc != expected_crc:
+            _push_back(ser, raw_len + data)
+            continue
 
-    expected_crc = crc8(bytes([cmd]) + payload)
-    if received_crc != expected_crc:
-        return None
-
-    return Frame(cmd=cmd, payload=payload)
+        return Frame(cmd=cmd, payload=payload)
 
 
 # -- High-level protocol wrapper ---------------------------------------------

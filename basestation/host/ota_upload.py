@@ -47,7 +47,10 @@ def upload_firmware(bs: Basestation, fw_data: bytes, target: int, version: int):
         f"version: {version}, crc32: 0x{fw_crc32:08X}"
     )
 
-    # Phase 1: Send START_OTA
+    # Phase 1: Send START_OTA.  An upload that died part way leaves the
+    # basestation receiving or transferring, where it NAKs a new start;
+    # ABORT_OTA is acknowledged in every state and returns it to idle.
+    bs.abort_ota()
     print("Sending OTA start...")
     bs.start_ota(target, fw_size, version, fw_crc32)
 
