@@ -29,6 +29,7 @@ import time
 import serial
 
 from basestation_proto import (
+    RESP_NAK,
     RESP_RECV_MSG,
     Basestation,
     BasestationError,
@@ -43,7 +44,14 @@ def rx_thread(bs: Basestation, running: threading.Event):
             frame = parse_frame(bs.ser, timeout=1.0)
             if frame is None:
                 continue
-            if frame.cmd == RESP_RECV_MSG and len(frame.payload) >= 3:
+            if frame.cmd == RESP_NAK:
+                code = frame.payload[0] if frame.payload else 0
+                print(
+                    json.dumps({"error": f"Send refused: NAK 0x{code:02X}"}),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif frame.cmd == RESP_RECV_MSG and len(frame.payload) >= 3:
                 src = frame.payload[0]
                 rssi = int.from_bytes(frame.payload[1:3], "little", signed=True)
                 data = frame.payload[3:]
@@ -79,10 +87,13 @@ def tx_thread(bs: Basestation, running: threading.Event):
             msg = json.loads(line)
             data = base64.b64decode(msg["data"])
 
+            # Only rx_thread reads the port: a second reader here, waiting
+            # for the ACK, would race it for bytes and lose frames on both
+            # sides.  rx_thread reports a NAK instead.
             if msg.get("broadcast"):
-                bs.send_broadcast(data)
+                bs.send_broadcast(data, wait_ack=False)
             elif "dest" in msg:
-                bs.send_mesh_msg(msg["dest"], data)
+                bs.send_mesh_msg(msg["dest"], data, wait_ack=False)
             else:
                 print(
                     json.dumps({"error": "Missing 'dest' or 'broadcast' field"}),

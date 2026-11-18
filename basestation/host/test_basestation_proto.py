@@ -6,6 +6,8 @@
 import unittest
 
 from basestation_proto import (
+    CMD_SEND_BROADCAST,
+    CMD_SEND_MSG,
     RESP_ACK,
     RESP_NAK,
     RESP_OTA_DONE,
@@ -69,6 +71,20 @@ class ExpectAck(unittest.TestCase):
         bs = station(IDLE_PROGRESS + HEARTBEAT)
         with self.assertRaisesRegex(BasestationError, "Timeout"):
             bs.send_fw_data(b"x")
+
+
+class SendWithoutAck(unittest.TestCase):
+    """data_relay sends this way so that only its receive thread reads."""
+
+    def test_sends_the_frame_and_reads_nothing(self):
+        bs = station(build_frame(RESP_ACK))
+        bs.send_mesh_msg(2, b"hi", wait_ack=False)
+        bs.send_broadcast(b"hello", wait_ack=False)
+        self.assertEqual(
+            bytes(bs.ser.written),
+            build_frame(CMD_SEND_MSG, b"\x02hi") + build_frame(CMD_SEND_BROADCAST, b"hello"),
+        )
+        self.assertEqual(bytes(bs.ser.incoming), build_frame(RESP_ACK))
 
 
 if __name__ == "__main__":

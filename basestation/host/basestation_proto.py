@@ -219,15 +219,18 @@ class Basestation:
         self._send(CMD_ABORT_OTA)
         self._expect_ack()
 
-    def send_mesh_msg(self, dest: int, data: bytes):
-        """Send a message to a specific mesh node."""
+    def send_mesh_msg(self, dest: int, data: bytes, wait_ack: bool = True):
+        """Send a message to a specific mesh node.  With wait_ack False the
+        reply is left for whoever else reads the port (see data_relay)."""
         self._send(CMD_SEND_MSG, bytes([dest]) + data)
-        self._expect_ack()
+        if wait_ack:
+            self._expect_ack()
 
-    def send_broadcast(self, data: bytes):
-        """Broadcast a message to all mesh nodes."""
+    def send_broadcast(self, data: bytes, wait_ack: bool = True):
+        """Broadcast a message to all mesh nodes; wait_ack as above."""
         self._send(CMD_SEND_BROADCAST, data)
-        self._expect_ack()
+        if wait_ack:
+            self._expect_ack()
 
     def recv_mesh_msg(
         self, timeout: float = 1.0
