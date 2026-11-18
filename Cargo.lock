@@ -39,6 +39,7 @@ dependencies = [
  "embedded-io",
  "embedded-nano-mesh",
  "flash-layout",
+ "heapless",
  "nb 1.1.0",
  "rtic",
  "rtic-monotonics",

@@ -61,7 +61,7 @@ mod app {
     use rtic_monotonics::systick::prelude::*;
     systick_monotonic!(Mono, 1000);
 
-    use embedded_hal::serial::Read as SerialRead;
+    use heapless::spsc::{Consumer, Producer, Queue};
     use rtt_target::{rprintln, rtt_init, set_print_channel};
     #[cfg(not(feature = "board"))]
     use stm32wlxx_hal::uart::Uart1;
@@ -96,6 +96,11 @@ mod app {
     #[cfg(feature = "board")]
     type HostUart = Uart2<pins::A3, pins::A2>;
 
+    /// Bytes from the host, queued by the UART interrupt for `run`.  A
+    /// FW_DATA frame (133 bytes) fits more than three times over, and the
+    /// host waits for each frame's ACK before sending the next.
+    const HOST_RX_LEN: usize = 512;
+
     /// Basestation operating state.
     enum BsState {
         /// No OTA in progress.  Relaying data only.
@@ -116,7 +121,12 @@ mod app {
     }
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+        /// Filled by the host UART interrupt.  Both tasks that name it run
+        /// at priority 2 and cannot preempt each other, so it needs no lock.
+        #[lock_free]
+        host_rx_in: Producer<'static, u8, HOST_RX_LEN>,
+    }
 
     #[local]
     struct Local {
@@ -130,9 +140,10 @@ mod app {
         ota_sender: Option<OtaSender>,
         tx_frame: FrameBuf,
         boot: BootState,
+        host_rx: Consumer<'static, u8, HOST_RX_LEN>,
     }
 
-    #[init]
+    #[init(local = [host_rx_queue: Queue<u8, HOST_RX_LEN> = Queue::new()])]
     fn init(mut cx: init::Context) -> (Shared, Local) {
         let channels = rtt_init! {
             up: {
@@ -215,6 +226,10 @@ mod app {
             u.enable_tx(gpioa.a2, cs)
         });
 
+        // Received bytes go through host_rx (see `host_rx_usart1`).
+        host_usart().cr1.modify(|_, w| w.rxneie().set_bit());
+        let (host_rx_in, host_rx) = cx.local.host_rx_queue.split();
+
         // ---- Mesh networking ------------------------------------------------
         debug_println!(
             "Basestation starting (address={}, freq={} Hz)...",
@@ -229,7 +244,7 @@ mod app {
         run::spawn().unwrap();
 
         (
-            Shared {},
+            Shared { host_rx_in },
             Local {
                 io,
                 mesh,
@@ -241,11 +256,13 @@ mod app {
                 ota_sender: None,
                 tx_frame: FrameBuf::new(),
                 boot,
+                host_rx,
             },
         )
     }
 
-    #[task(local = [io, mesh, flash, iwdg, uart, parser, state, ota_sender, tx_frame, boot],
+    #[task(local = [io, mesh, flash, iwdg, uart, parser, state, ota_sender, tx_frame, boot,
+                   host_rx],
            priority = 1)]
     async fn run(cx: run::Context) {
         let io = cx.local.io;
@@ -258,6 +275,7 @@ mod app {
         let ota_sender = cx.local.ota_sender;
         let tx_frame = cx.local.tx_frame;
         let boot = cx.local.boot;
+        let host_rx = cx.local.host_rx;
 
         // Progress reporting interval
         let progress_interval = 500_u32.millis();
@@ -283,29 +301,20 @@ mod app {
             // -- 2. Drive mesh protocol ----------------------------------
             mesh.update(io, sx1262_mesh_rs::platform::millis());
 
-            // -- 3. Poll UART for host commands --------------------------
-            loop {
-                match uart.read() {
-                    Ok(byte) => {
-                        if parser.feed(byte) {
-                            let frame = parser.frame();
-                            handle_cmd(
-                                frame.cmd,
-                                frame.payload,
-                                state,
-                                ota_sender,
-                                flash,
-                                mesh,
-                                uart,
-                                tx_frame,
-                            );
-                        }
-                    }
-                    Err(nb::Error::WouldBlock) => break,
-                    Err(_) => {
-                        clear_uart_errors();
-                        break;
-                    }
+            // -- 3. Host commands, queued by host_rx_usart1/2 ----------
+            while let Some(byte) = host_rx.dequeue() {
+                if parser.feed(byte) {
+                    let frame = parser.frame();
+                    handle_cmd(
+                        frame.cmd,
+                        frame.payload,
+                        state,
+                        ota_sender,
+                        flash,
+                        mesh,
+                        uart,
+                        tx_frame,
+                    );
                 }
             }
 
@@ -739,16 +748,61 @@ mod app {
         }
     }
 
-    /// Clear the host UART's parity, framing, noise and overrun flags.  The
-    /// HAL reports these as errors from every read and write but never
-    /// clears them, so one bad received byte (a glitch while the USB bridge
-    /// restarts, say) would cut the host link until the next reset.
-    fn clear_uart_errors() {
+    /// Receive from the host in the UART interrupt.  `run` used to poll the
+    /// UART itself, but the receive FIFO holds 8 bytes (0.7 ms at 115200)
+    /// while `run` sleeps 1 ms per pass and blocks for whole radio
+    /// transmissions: any frame over 8 bytes overran and was lost.
+    ///
+    /// Both USARTs get a task, since RTIC cannot drop one by feature; only
+    /// the host's has its receive interrupt enabled (in `init`), so only
+    /// that task ever runs.
+    #[task(binds = USART1, shared = [host_rx_in], priority = 2)]
+    fn host_rx_usart1(cx: host_rx_usart1::Context) {
+        drain_host_rx(cx.shared.host_rx_in);
+    }
+
+    /// `host_rx_usart1`, for the `board` build's host link on USART2.
+    #[task(binds = USART2, shared = [host_rx_in], priority = 2)]
+    fn host_rx_usart2(cx: host_rx_usart2::Context) {
+        drain_host_rx(cx.shared.host_rx_in);
+    }
+
+    /// Move every byte the host UART holds into `queue`.  An overrun also
+    /// raises this interrupt and must be cleared or it fires forever.  A
+    /// byte that finds the queue full is dropped; the frame CRC then
+    /// rejects its frame, and the host's wait for the ACK times out.
+    fn drain_host_rx(queue: &mut Producer<'static, u8, HOST_RX_LEN>) {
+        let usart = host_usart();
+        loop {
+            let isr = usart.isr.read();
+            if isr.ore().bit_is_set()
+                || isr.fe().bit_is_set()
+                || isr.ne().bit_is_set()
+                || isr.pe().bit_is_set()
+            {
+                clear_uart_errors();
+            }
+            if isr.rxne().bit_is_clear() {
+                break;
+            }
+            queue.enqueue(usart.rdr.read().rdr().bits() as u8).ok();
+        }
+    }
+
+    /// The host UART's registers, for what the HAL does not offer.
+    fn host_usart() -> &'static stm32wlxx_hal::pac::usart1::RegisterBlock {
         #[cfg(not(feature = "board"))]
         let usart = unsafe { &*stm32wlxx_hal::pac::USART1::ptr() };
         #[cfg(feature = "board")]
         let usart = unsafe { &*stm32wlxx_hal::pac::USART2::ptr() };
         usart
+    }
+
+    /// Clear the host UART's parity, framing, noise and overrun flags.  The
+    /// HAL reports these as errors from every write but never clears them,
+    /// so one bad received byte would otherwise stop every send.
+    fn clear_uart_errors() {
+        host_usart()
             .icr
             .write(|w| w.pecf().set_bit().fecf().set_bit().ncf().set_bit().orecf().set_bit());
     }

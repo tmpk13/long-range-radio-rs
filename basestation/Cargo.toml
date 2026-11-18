@@ -21,6 +21,7 @@ rtic = { version = "2.2.0", features = ["thumbv7-backend"] }
 rtic-monotonics = { version = "2.1.0", features = ["cortex-m-systick"] }
 embedded-nano-mesh = "2.1"
 embedded-io = "0.6"
+heapless = "0.8"
 embedded-hal = "0.2"
 nb = "1"
 sx1262-mesh-rs = { path = "../firmware" }
