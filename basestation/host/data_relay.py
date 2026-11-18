@@ -68,7 +68,9 @@ def tx_thread(bs: Basestation, running: threading.Event):
         try:
             line = sys.stdin.readline()
             if not line:
-                running.clear()
+                # End of input stops sending only: a relay logging to a file
+                # with no stdin (nohup, a service) keeps receiving until
+                # interrupted.
                 break
             line = line.strip()
             if not line:

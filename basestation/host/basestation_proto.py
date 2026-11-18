@@ -38,6 +38,9 @@ RESP_PROGRESS = 0x83
 RESP_OTA_DONE = 0x84
 RESP_RECV_MSG = 0x90
 
+# Frames the basestation sends on its own, not as a reply to a command.
+UNSOLICITED = (RESP_PROGRESS, RESP_RECV_MSG)
+
 # OTA states
 OTA_IDLE = 0x00
 OTA_RECEIVING_FW = 0x01
@@ -149,16 +152,29 @@ class Basestation:
         return parse_frame(self.ser, timeout or self.timeout)
 
     def _expect_ack(self, timeout: float | None = None):
-        frame = self._recv(timeout)
-        if frame is None:
-            raise BasestationError("Timeout waiting for response")
-        if frame.cmd == RESP_NAK:
-            code = frame.payload[0] if frame.payload else 0
-            raise BasestationError(f"NAK received: error code 0x{code:02X}")
-        if frame.cmd != RESP_ACK:
-            raise BasestationError(
-                f"Unexpected response: cmd=0x{frame.cmd:02X}"
-            )
+        """Wait for the ACK or NAK to the command just sent.
+
+        The basestation also sends frames nobody asked for: a PROGRESS
+        report every 500 ms in every state, and a RECV_MSG for each mesh
+        message it hears.  Either can arrive between a command and its
+        reply, so both are skipped here.
+        """
+        deadline = time.monotonic() + (timeout or self.timeout)
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise BasestationError("Timeout waiting for response")
+            frame = self._recv(left)
+            if frame is None or frame.cmd in UNSOLICITED:
+                continue
+            if frame.cmd == RESP_NAK:
+                code = frame.payload[0] if frame.payload else 0
+                raise BasestationError(f"NAK received: error code 0x{code:02X}")
+            if frame.cmd != RESP_ACK:
+                raise BasestationError(
+                    f"Unexpected response: cmd=0x{frame.cmd:02X}"
+                )
+            return
 
     def start_ota(
         self, target_addr: int, fw_size: int, fw_version: int, fw_crc32: int
