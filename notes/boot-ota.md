@@ -256,12 +256,16 @@ Measured on two V1 boards on the bench, 2026-11-17, at the default `fast`
 preset with a 57,828-byte image (2,142 chunks):
 
 - Upload to the basestation: 8 s (6.5 kB/s).
-- Mesh transfer: 32 min 30 s, about 0.91 s per chunk, so a full 112 KB
-  slot (4,248 chunks) would take about 64 min.
+- Mesh transfer: 32 min 30 s for v2 and 33 min 5 s for v3, about 0.91 s
+  per chunk, so a full 112 KB slot (4,248 chunks) would take about 64 min.
 - Reboot: 10.2 s from the host's `OTA transfer successful!` to the node's
   `OTA: rebooting into the staged image`; the new image's first RTT line
   came 8.6 s later (swap plus boot, read through RTT, so an upper bound).
-- An offer the node refuses (0x07, during a trial): 9.7 s end to end.
+- An offer the node refuses (0x07 during a trial, 0x02 for the version
+  it runs): 9.7 s end to end.
+- The trial, the confirm 30 min after the reboot (with one packet heard),
+  and the SW1 rollback (`Reset: Pin`, `bootloader: Some(Reverted)`, boot
+  report `W=2 B=4 V=2`) all behaved as specified.
 
 The estimates below came first; the mesh figure was about 20% low.
 

@@ -5,3 +5,5 @@
 - A new image is confirmed only after 30 min healthy on trial, and any earlier reset reverts it (`firmware/src/supervisor.rs`, notes/boot-ota.md)
 - The node reboots itself about 10 s after a completed OTA transfer (`firmware/src/ota.rs`)
 - Watchdogs: the IWDG from the bootloader on, a reset record and boot report, a radio stall supervisor, deadline-bounded I2C (ARCHITECTURE.md, Watchdogs)
+- OTA between two V1 boards on hardware (2026-11-17): v2 in 32.7 min, trial, confirm, 0x07, 0x02 and the SW1 rollback all as specified (docs/v1-board-test.md section 10, notes/boot-ota.md)
+- Basestation runs on a V1 board: HSI16 started for its UART, host bytes received in the UART interrupt (notes/boot-ota.md)

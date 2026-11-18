@@ -327,14 +327,14 @@ running probe-rs. After that:
 - [x] The same upload during the trial ends with
   `OTA transfer finished with result: 0x07`: the node takes no new image
   before it has kept the one it runs
-- [ ] Send the node one message so it has heard a packet (type
+- [x] Send the node one message so it has heard a packet (type
   `{"dest": 2, "data": "aGk="}` into `mise run data-relay -p PORT`):
   30 min after the reboot RTT shows `Boot: image confirmed`. With
   nothing heard it waits 6 h
-- [ ] The same upload again ends with
+- [x] The same upload again ends with
   `OTA transfer finished with result: 0x02`: the board refuses
   version 2 because it now runs it
-- [ ] Rollback: send version 3 the same way and press SW1 during its
+- [x] Rollback: send version 3 the same way and press SW1 during its
   trial. The bootloader puts version 2 back: RTT shows
   `bootloader: Some(Reverted)` and the boot report `W=2 B=4 V=2`
 
